@@ -795,7 +795,7 @@ async function geminiCallWithRetry(apiKey, body, attempt = 1) {
   lastCallTime = Date.now();
 
   const resp = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
     { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }
   );
 
@@ -889,7 +889,7 @@ verdict: LONG|SHORT|NEUTRAL|AVOID. sentiment: bullish|bearish|neutral. confidenc
 
   const data = await geminiCallWithRetry(apiKey, {
         contents: [{ parts: [{ text: prompt }] }],
-        tools: [{ google_search_retrieval: {} }],
+        "tools": [ { "google_search": {} } ],
         generationConfig: { temperature: 0.2, maxOutputTokens: 1500 }
       });
   const raw = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '';
