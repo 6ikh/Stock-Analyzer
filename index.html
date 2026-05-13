@@ -1244,17 +1244,17 @@ function showError(msg) {
 }
 
 function renderMarkdownResults(markdown, signals) {
-  // Add to session history
+  // Add to session signalHistory
   signals.forEach(s => {
-    if (s.ticker !== 'IMAGE' && !history.find(h => h.ticker === s.ticker)) {
-      history.unshift({ ticker: s.ticker, markdown, signals });
+    if (s.ticker !== 'IMAGE' && !signalHistory.find(h => h.ticker === s.ticker)) {
+      signalHistory.unshift({ ticker: s.ticker, markdown, signals });
     }
   });
   // If image-only, try to extract tickers from markdown headings
   if (signals[0]?.ticker === 'IMAGE') {
     const found = [...markdown.matchAll(/^# ([A-Z]{2,6})/gm)].map(m => m[1]);
     found.forEach(t => {
-      if (!history.find(h => h.ticker === t)) history.unshift({ ticker: t, markdown, signals });
+      if (!signalHistory.find(h => h.ticker === t)) signalHistory.unshift({ ticker: t, markdown, signals });
     });
   }
   updateHistory();
@@ -1282,9 +1282,9 @@ function buildMarkdownCard(markdown) {
 function updateHistory() {
   const strip = document.getElementById('histStrip');
   const items = document.getElementById('histItems');
-  if (!history.length) { strip.className = 'hist-strip'; return; }
+  if (!signalHistory.length) { strip.className = 'hist-strip'; return; }
   strip.className = 'hist-strip show';
-  items.innerHTML = history.map((r, i) => {
+  items.innerHTML = signalHistory.map((r, i) => {
     const m = r.markdown?.match(/\*\*(LONG|SHORT|NEUTRAL|AVOID)\*\*/);
     const verdict = m ? m[1] : '—';
     const vMap = { LONG:'vl', SHORT:'vs', NEUTRAL:'vn', AVOID:'va' };
@@ -1296,7 +1296,7 @@ function updateHistory() {
 }
 
 function showHistory(i) {
-  const r = history[i];
+  const r = signalHistory[i];
   if (!r) return;
   document.getElementById('result').innerHTML = buildMarkdownCard(r.markdown);
   document.getElementById('result').scrollIntoView({ behavior: 'smooth' });
