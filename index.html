@@ -1280,8 +1280,8 @@ function buildMarkdownCard(markdown) {
   return cardsHtml || `<div class="md-card"><div class="md-body">${renderMarkdown(markdown)}</div></div>`;
 }
 function updateHistory() {
-  const strip = document.getElementById('histStrip');
-  const items = document.getElementById('histItems');
+  const strip = document.getElementById('historyStrip');
+  const items = document.getElementById('historyItems');
   if (!signalHistory.length) { strip.className = 'hist-strip'; return; }
   strip.className = 'hist-strip show';
   items.innerHTML = signalHistory.map((r, i) => {
