@@ -5,6 +5,9 @@ body[unresolved] {opacity: 0; display: block; overflow: hidden; position: relati
 </style>
 
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>Pro Ticker Analyzer</title>
 <link href="./incomplete output_files/css2" rel="stylesheet">
 <style>
@@ -765,8 +768,15 @@ Or just a ticker: NVDA"></textarea>
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+  // Clear any stale browser-cached image previews on load
+  const _upPreview = document.getElementById('uploadPreview');
+  if (_upPreview) _upPreview.style.display = 'none';
+  const _prevImg = document.getElementById('previewImg');
+  if (_prevImg) _prevImg.src = '';
+  const _imgDet = document.getElementById('imgDetected');
+  if (_imgDet) _imgDet.className = 'img-detected';
   // ── State ──────────────────────────────────────────────────────
-  let signalHistory = [];
+  let signalHistory = []; // Never persisted — fresh on each page load
   let FINNHUB_KEY = '';
 
   // ── Finnhub key persistence ────────────────────────────────────
@@ -1118,6 +1128,29 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   document.getElementById('analyzeBtn').addEventListener('click', runAnalysis);
+
+  // Clear button
+  var _cb = document.getElementById('clearBtn');
+  if (_cb) {
+    _cb.addEventListener('click', function() {
+      document.getElementById('result').innerHTML = '';
+      signalHistory = [];
+      updateHistory();
+      var _si = document.getElementById('signalInput');
+      if (_si) _si.value = '';
+      var _pr = document.getElementById('parsedRow');
+      if (_pr) _pr.className = 'parsed-row';
+      // Clear image
+      currentImageBase64 = null;
+      currentImageMime = null;
+      var _pi = document.getElementById('previewImg');
+      if (_pi) _pi.src = '';
+      var _up = document.getElementById('uploadPreview');
+      if (_up) _up.style.display = 'none';
+      var _id = document.getElementById('imgDetected');
+      if (_id) _id.className = 'img-detected';
+    });
+  }
   document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runAnalysis(); });
 
   // Rate limit state
@@ -1190,13 +1223,17 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
   function extractTextFromResponse(data) {
-    // Just grab all text parts — no JSON parsing needed
     const parts = data.candidates?.[0]?.content?.parts || [];
     const text = parts
       .filter(p => p.text && typeof p.text === 'string')
       .map(p => p.text)
       .join('\n');
     if (!text.trim()) throw new Error('Empty response from AI. Try again in a few seconds.');
+    // Strip any preamble text Gemini adds before the first # heading
+    const firstHeading = text.indexOf('\n# ');
+    if (firstHeading > 0) return text.slice(firstHeading).trim();
+    // Also handle if it starts with # directly
+    if (text.trimStart().startsWith('# ')) return text.trimStart();
     return text.trim();
   }
 
@@ -1356,6 +1393,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }).filter(Boolean).join('\n\n');
 
     const prompt = `You are a senior Wall Street day trading analyst. Today is ${today}, current time is ${now}.
+IMPORTANT: Start your response IMMEDIATELY with the first # heading. Do NOT write any introduction, preamble, or summary sentence before the ticker headings.
 
 SIGNALS TO ANALYZE:
 ${signalList}
