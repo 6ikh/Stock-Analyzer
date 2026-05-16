@@ -706,21 +706,17 @@ textarea::placeholder { color: var(--text4); }
     <a href="https://aistudio.google.com/apikey" target="_blank">Get free key ↗</a>
   </div>
 
-  <!-- Finnhub Key -->
+  <!-- Finnhub Key Bar -->
   <div class="api-bar" id="finnhubBar">
-    <label>FINNHUB KEY</label>
-    <input type="password" id="finnhubKey" placeholder="c... (free at finnhub.io/register)" />
-    <span class="api-saved" id="finnhubSaved" style="display:none">✓ saved</span>
-    <a href="https://finnhub.io/register" target="_blank">Get free key ↗</a>
+    <label style="font-size:10px;font-family:Space Mono,monospace;color:var(--text4);letter-spacing:0.08em;white-space:nowrap">FINNHUB KEY</label>
+    <input type="password" id="finnhubKey" style="flex:1;background:var(--bg4);border:1px solid var(--border2);border-radius:7px;padding:7px 11px;font-family:Space Mono,monospace;font-size:12px;color:var(--text);outline:none" placeholder="c... (free at finnhub.io/register)" />
+    <a href="https://finnhub.io/register" target="_blank" style="font-size:10px;color:var(--green);font-family:Space Mono,monospace;text-decoration:none;white-space:nowrap;opacity:0.8">Get free key ↗</a>
   </div>
 
   <!-- History -->
-  <div class="hist-strip show" id="historyStrip">
+  <div class="hist-strip" id="historyStrip">
     <div class="history-hdr">Today's Signals</div>
-    <div class="history-items" id="historyItems"><div class="hchip active" onclick="showHistory(0)">
-        <span class="hcticker">TDIC</span>
-        <span class="hcv vl">LONG</span>
-      </div></div>
+    <div id="historyItems"></div></div>
   </div>
 
   <!-- Inputs -->
@@ -757,179 +753,260 @@ Or just a ticker: NVDA"></textarea>
   </div>
   <div class="parsed-row visible" id="parsedRow"><span class="parsed-label" style="color:var(--amber)">📷 Signals will be extracted from image by AI</span></div>
 
-  <div style="display:flex;gap:10px;margin-bottom:28px"><button class="analyze-btn" style="flex:1;margin-bottom:0" id="analyzeBtn">Analyze Signal →</button><button id="clearBtn" style="background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:15px 20px;color:var(--text3);font-family:'Syne',sans-serif;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap">✕ Clear</button></div>
+  <div style="display:flex;gap:10px;margin-bottom:28px"><button class="analyze-btn" style="flex:1;margin-bottom:0" id="analyzeBtn">Analyze Signal →</button><button id="clearBtn" style="background:var(--bg3);border:1px solid var(--border2);border-radius:12px;padding:15px 20px;color:var(--text3);font-family:'Syne',sans-serif;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all 0.2s" onmouseover="this.style.borderColor='var(--red)';this.style.color='var(--red)'" onmouseout="this.style.borderColor='var(--border2)';this.style.color='var(--text3)'">✕ Clear</button></div>
 
-  <div id="result"><div class="md-card" style="border-top: 3px solid var(--border)">
-        <div class="md-body"><p>As a senior Wall Street day trading analyst, I've reviewed the Pro Ticker Signals app screenshot and conducted immediate, thorough web research on the identified tickers. Here's my comprehensive analysis:</p><p></p><hr><p></p><p></p></div>
-      </div><div class="md-card" style="border-top: 3px solid var(--green)">
-        <div class="md-body"><p></p><h1>TDIC — Dreamland Limited Class A Ordinary Shares</h1><br><strong>LONG</strong> | Confidence: 85% | Long &gt; 1.68 Short &lt; 1.25<p></p><p></p><h2>📡 Catalyst Scan</h2><br><strong>NEWS-DRIVEN CATALYST:</strong> Dreamland Limited's subsidiary, Trendic International Limited, entered into a non-binding Memorandum of Understanding (MoU) with LinkFung Innovation Limited to explore the development of a comprehensive AI-Powered Intelligent Image Library Platform. This news was filed as a Form 6-K on May 12, 2<p></p></div>
-      </div></div>
-</div>
-
-<script>
+  <div id="result"><script>
 document.addEventListener('DOMContentLoaded', function() {
-  // Clear any stale browser-cached image previews on load
-  const _upPreview = document.getElementById('uploadPreview');
-  if (_upPreview) _upPreview.style.display = 'none';
-  const _prevImg = document.getElementById('previewImg');
-  if (_prevImg) _prevImg.src = '';
-  const _imgDet = document.getElementById('imgDetected');
-  if (_imgDet) _imgDet.className = 'img-detected';
-  // ── State ──────────────────────────────────────────────────────
-  let signalHistory = []; // Never persisted — fresh on each page load
-  let FINNHUB_KEY = '';
-
-  // ── Finnhub key persistence ────────────────────────────────────
-  const finnhubInput = document.getElementById('finnhubKey');
-  const savedFinnhub = localStorage.getItem('pta_finnhub_key');
-  if (savedFinnhub) {
-    finnhubInput.value = savedFinnhub;
-    FINNHUB_KEY = savedFinnhub;
-    document.getElementById('finnhubSaved').style.display = 'inline';
-  }
-  finnhubInput.addEventListener('input', () => {
-    FINNHUB_KEY = finnhubInput.value.trim();
-    localStorage.setItem('pta_finnhub_key', FINNHUB_KEY);
-    document.getElementById('finnhubSaved').style.display = FINNHUB_KEY ? 'inline' : 'none';
+  // Ensure clean state — wipe any stale localStorage history
+  localStorage.removeItem('pta_signal_history');
+  document.getElementById('result').innerHTML = '';
+  var hi = document.getElementById('historyItems');
+  if (hi) hi.innerHTML = '';
+  // Reset stale image state on load
+  ['uploadPreview','previewImg','imgDetected'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (id === 'uploadPreview') el.style.display = 'none';
+    else if (id === 'previewImg') el.src = '';
+    else el.className = 'img-detected';
   });
+  // ── State ──────────────────────────────────────────────────────
+  let signalHistory = []; // fresh each page load
+  let FINNHUB_KEY = '';
+  const _fhInput = document.getElementById('finnhubKey');
+  if (_fhInput) {
+    const _fhSaved = localStorage.getItem('pta_finnhub');
+    if (_fhSaved) { _fhInput.value = _fhSaved; FINNHUB_KEY = _fhSaved; }
+    _fhInput.addEventListener('input', function() {
+      FINNHUB_KEY = _fhInput.value.trim();
+      localStorage.setItem('pta_finnhub', FINNHUB_KEY);
+    });
+  }
 
-  // ── Finnhub API calls ──────────────────────────────────────────
-  async function finnhubFetch(path) {
+  async function fhFetch(path) {
     if (!FINNHUB_KEY) return null;
     try {
-      const r = await fetch(`https://finnhub.io/api/v1${path}&token=${FINNHUB_KEY}`);
-      if (!r.ok) return null;
-      return await r.json();
-    } catch { return null; }
+      var r = await fetch('https://finnhub.io/api/v1' + path + '&token=' + FINNHUB_KEY);
+      return r.ok ? r.json() : null;
+    } catch(e) { return null; }
   }
-
-  function fmt(n, decimals = 2) {
-    if (n === null || n === undefined || n === 0) return '—';
-    return Number(n).toFixed(decimals);
-  }
-  function fmtBig(n) {
-    if (!n || n === 0) return '—';
-    if (n >= 1e9) return '$' + (n / 1e9).toFixed(2) + 'B';
-    if (n >= 1e6) return '$' + (n / 1e6).toFixed(1) + 'M';
-    if (n >= 1e3) return '$' + (n / 1e3).toFixed(1) + 'K';
-    return '$' + n;
-  }
-  function fmtVol(n) {
-    if (!n) return '—';
-    if (n >= 1e6) return (n / 1e6).toFixed(2) + 'M';
-    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
-    return n;
-  }
-  function fmtPct(n) {
-    if (n === null || n === undefined) return '—';
-    const sign = n >= 0 ? '+' : '';
-    return sign + Number(n).toFixed(2) + '%';
-  }
+  function fmtN(n,d){ return (n===null||n===undefined||n===0)?'—':Number(n).toFixed(d||2); }
+  function fmtB(n){ if(!n||n===0)return'—'; if(n>=1e9)return'$'+(n/1e9).toFixed(2)+'B'; if(n>=1e6)return'$'+(n/1e6).toFixed(1)+'M'; return'$'+n; }
+  function fmtV(n){ if(!n)return'—'; if(n>=1e6)return(n/1e6).toFixed(2)+'M'; if(n>=1e3)return(n/1e3).toFixed(1)+'K'; return''+n; }
 
   async function getFinnhubData(ticker) {
-    // Fetch in parallel: quote, company profile, basic financials
-    const [quote, profile, financials, news] = await Promise.all([
-      finnhubFetch(`/quote?symbol=${ticker}`),
-      finnhubFetch(`/stock/profile2?symbol=${ticker}`),
-      finnhubFetch(`/stock/metric?symbol=${ticker}&metric=all`),
-      finnhubFetch(`/company-news?symbol=${ticker}&from=${new Date(Date.now()-3*24*60*60*1000).toISOString().split('T')[0]}&to=${new Date().toISOString().split('T')[0]}`)
+    var from = new Date(Date.now()-3*86400000).toISOString().split('T')[0];
+    var to = new Date().toISOString().split('T')[0];
+    var [q, p, f, n] = await Promise.all([
+      fhFetch('/quote?symbol='+ticker),
+      fhFetch('/stock/profile2?symbol='+ticker),
+      fhFetch('/stock/metric?symbol='+ticker+'&metric=all'),
+      fhFetch('/company-news?symbol='+ticker+'&from='+from+'&to='+to)
     ]);
+    if (!q || q.c === 0) return null;
+    var m = f && f.metric || {};
+    var chg = q.c && q.pc ? ((q.c-q.pc)/q.pc*100) : null;
+    var avgV = m['10DayAverageTradingVolume'] ? m['10DayAverageTradingVolume']*1e6 : null;
+    var relV = (q.v && avgV) ? (q.v/avgV).toFixed(1)+'x' : '—';
+    // Calculate contextual values
+    var avg3m = m['3MonthAverageTradingVolume'] ? m['3MonthAverageTradingVolume']*1e6 : null;
+    var relV3m = (q.v && avg3m) ? (q.v/avg3m).toFixed(1)+'x' : '—';
+    var bookVal = m['bookValuePerShareQuarterly'] || m['bookValuePerShareAnnual'] || null;
+    var tangBook = m['tangibleBookValuePerShareQuarterly'] || m['tangibleBookValuePerShareAnnual'] || null;
+    var sharesOut = p && p.shareOutstanding ? p.shareOutstanding*1e6 : null;
+    var betaVal = m['beta'] || null;
 
-    if (!quote || quote.c === 0) return null;
+    // Contextual analysis generators
+    function hiAnalysis(hi, cur) {
+      if (!hi || !cur) return '—';
+      var pct = ((cur-hi)/hi*100);
+      if (pct < -20) return 'Price is ' + Math.abs(pct.toFixed(0)) + '% below today\'s high — significant momentum has faded.';
+      if (pct < -10) return 'Price has pulled back ' + Math.abs(pct.toFixed(0)) + '% from the high — watch for support.';
+      if (pct < -5) return 'Slight pullback from intraday high — still in strong territory.';
+      return 'Trading near intraday high — strong momentum maintained.';
+    }
+    function loAnalysis(lo, cur) {
+      if (!lo || !cur) return '—';
+      var pct = ((cur-lo)/lo*100);
+      if (pct < 5) return '⚠️ Price is dangerously close to today\'s low — high risk of breakdown.';
+      if (pct < 15) return 'Some cushion above the low but remain cautious of a retest.';
+      return 'Healthy distance from today\'s low — downside floor is holding.';
+    }
+    function openAnalysis(open, prevClose) {
+      if (!open || !prevClose) return '—';
+      var gap = ((open-prevClose)/prevClose*100);
+      if (gap > 10) return '⚡ Aggressive gap up of +' + gap.toFixed(1) + '% at open — high momentum but also high fade risk.';
+      if (gap > 3) return 'Gapped up ' + gap.toFixed(1) + '% at the open — bullish signal with catalyst.';
+      if (gap < -3) return 'Gapped down ' + Math.abs(gap.toFixed(1)) + '% — bearish opening, proceed cautiously.';
+      return 'Opened near previous close — no significant gap, organic movement.';
+    }
+    function prevCloseAnalysis(cur, prev) {
+      if (!cur || !prev) return '—';
+      var chgPct = ((cur-prev)/prev*100);
+      if (chgPct > 20) return '🔥 Up ' + chgPct.toFixed(1) + '% from yesterday — exceptional day, watch for profit-taking.';
+      if (chgPct > 5) return 'Up ' + chgPct.toFixed(1) + '% vs prior close — confirmed net winner today.';
+      if (chgPct < -5) return 'Down ' + Math.abs(chgPct.toFixed(1)) + '% from yesterday — net loser, caution warranted.';
+      return 'Roughly flat vs prior close — low conviction day.';
+    }
+    function vol3mAnalysis(vol, avg) {
+      if (!vol || !avg) return '—';
+      var mult = (vol/avg);
+      if (mult > 10) return '🚀 Volume is ' + mult.toFixed(1) + 'x the 3-month average — this is a rare, extreme hyper-active event.';
+      if (mult > 5) return 'Volume is ' + mult.toFixed(1) + 'x the 3M average — significant institutional or retail surge.';
+      if (mult > 2) return 'Above-average activity at ' + mult.toFixed(1) + 'x — healthy momentum confirmation.';
+      return 'Volume near 3M average — no unusual spike detected.';
+    }
+    function vol10dAnalysis(vol, avg) {
+      if (!vol || !avg) return '—';
+      var mult = (vol/avg);
+      if (mult > 5) return '🔥 ' + mult.toFixed(1) + 'x the 10-day average — retail FOMO is very much alive.';
+      if (mult > 2) return mult.toFixed(1) + 'x 10-day average — momentum is healthy and building.';
+      if (mult < 0.8) return '⚠️ Below 10-day average — retail interest may be fading. Momentum health concern.';
+      return 'Roughly in line with 10-day average — steady but not explosive.';
+    }
+    function sharesAnalysis(shares) {
+      if (!shares) return '—';
+      var m = shares/1e6;
+      if (m > 500) return '⚠️ ' + m.toFixed(0) + 'M shares outstanding — very high dilution risk. Large supply overhead.';
+      if (m > 100) return m.toFixed(0) + 'M shares — moderate float size. Manageable but watch for dilution.';
+      if (m < 20) return '🎯 Only ' + m.toFixed(1) + 'M shares — low float micro-cap. Small buys can move price significantly.';
+      return m.toFixed(1) + 'M shares outstanding — normal range for this market cap tier.';
+    }
+    function bookValAnalysis(bv, cur) {
+      if (!bv || !cur) return '—';
+      var ratio = cur/bv;
+      if (ratio > 10) return '⚠️ Trading at ' + ratio.toFixed(1) + 'x book value — heavily speculative, not backed by assets.';
+      if (ratio > 3) return 'At ' + ratio.toFixed(1) + 'x book — premium valuation, dependent on growth delivery.';
+      if (ratio < 1) return '💎 Trading BELOW book value — potentially undervalued on assets alone.';
+      return 'At ' + ratio.toFixed(1) + 'x book — reasonable valuation vs asset base.';
+    }
+    function tangBookAnalysis(tbv, cur) {
+      if (!tbv || !cur) return '—';
+      if (tbv < 0) return '🚨 Negative tangible book value ($'+tbv.toFixed(2)+') — company has more liabilities than tangible assets. Bankruptcy risk elevated.';
+      var ratio = cur/tbv;
+      if (ratio > 20) return 'Price is ' + ratio.toFixed(0) + 'x tangible book — highly speculative. Near-zero recovery value in liquidation.';
+      if (ratio > 5) return ratio.toFixed(1) + 'x tangible book — significant premium over hard assets.';
+      return 'Tangible book of $'+tbv.toFixed(2)+' provides some asset floor support.';
+    }
+    function betaAnalysis(b) {
+      if (!b) return '—';
+      if (b > 3) return '🎢 Beta of '+b.toFixed(2)+' — extreme volatility. Moves 3x+ the market. High-risk day trade only.';
+      if (b > 2) return 'Beta of '+b.toFixed(2)+' — very high volatility. Expect sharp swings in both directions.';
+      if (b > 1.5) return 'Beta of '+b.toFixed(2)+' — above-average volatility. Active risk management required.';
+      if (b > 1) return 'Beta of '+b.toFixed(2)+' — slightly more volatile than the market.';
+      if (b < 0) return 'Negative beta ('+b.toFixed(2)+') — moves inversely to the market. Natural hedge.';
+      return 'Beta of '+b.toFixed(2)+' — less volatile than the market.';
+    }
 
-    const metric = financials?.metric || {};
-    const change = quote.c && quote.pc ? ((quote.c - quote.pc) / quote.pc * 100) : null;
-    const relVol = (quote.v && metric['10DayAverageTradingVolume'])
-      ? (quote.v / (metric['10DayAverageTradingVolume'] * 1e6)).toFixed(1) + 'x'
-      : '—';
-
-    // Format news items (last 5, most recent first)
-    const recentNews = (news || []).slice(0, 5).map(n => ({
-      headline: n.headline,
-      source: n.source,
-      url: n.url,
-      datetime: new Date(n.datetime * 1000).toLocaleString('en-US', {
-        month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
-      }),
-      summary: n.summary ? n.summary.slice(0, 200) : ''
-    }));
-
+    var curPrice = q.c;
     return {
-      price: fmt(quote.c),
-      change: fmtPct(change),
-      changeRaw: change,
-      open: fmt(quote.o),
-      high: fmt(quote.h),
-      low: fmt(quote.l),
-      prevClose: fmt(quote.pc),
-      volume: fmtVol(quote.v),
-      avgVolume: fmtVol(metric['10DayAverageTradingVolume'] ? metric['10DayAverageTradingVolume'] * 1e6 : null),
-      relVolume: relVol,
-      marketCap: fmtBig(profile?.marketCapitalization ? profile.marketCapitalization * 1e6 : null),
-      week52High: fmt(metric['52WeekHigh']),
-      week52Low: fmt(metric['52WeekLow']),
-      beta: fmt(metric['beta'], 2),
-      peRatio: fmt(metric['peBasicExclExtraTTM'], 1),
-      eps: fmt(metric['epsBasicExclExtraItemsTTM']),
-      shortInterest: metric['shortInterest'] ? fmtVol(metric['shortInterest']) : '—',
-      shortRatio: fmt(metric['shortRatioTTM'], 1),
-      company: profile?.name || ticker,
-      exchange: profile?.exchange || '—',
-      industry: profile?.finnhubIndustry || '—',
-      country: profile?.country || '—',
-      logo: profile?.logo || null,
-      weburl: profile?.weburl || null,
-      news: recentNews
+      price: fmtN(q.c), change: chg!==null?(chg>=0?'+':'')+chg.toFixed(2)+'%':'—', changeRaw: chg,
+      open: fmtN(q.o), high: fmtN(q.h), low: fmtN(q.l), prevClose: fmtN(q.pc),
+      volume: fmtV(q.v), avgVolume: fmtV(avgV), relVolume: relV,
+      relVolumeDetail: q.v && avgV ? fmtV(q.v)+' / '+fmtV(avgV) : '—',
+      avg3mVolume: fmtV(avg3m), relVolume3m: relV3m,
+      marketCap: fmtB(p&&p.marketCapitalization?p.marketCapitalization*1e6:null),
+      hi52: fmtN(m['52WeekHigh']), lo52: fmtN(m['52WeekLow']),
+      shortInt: m['shortInterest']?fmtV(m['shortInterest']):'—',
+      shortRatio: fmtN(m['shortRatioTTM'],1),
+      beta: fmtN(betaVal,2), betaRaw: betaVal,
+      pe: fmtN(m['peBasicExclExtraTTM'],1),
+      bookValue: fmtN(bookVal,2), bookValueRaw: bookVal,
+      tangBookValue: fmtN(tangBook,2), tangBookRaw: tangBook,
+      sharesOutstanding: fmtV(sharesOut), sharesRaw: sharesOut,
+      company: p&&p.name||ticker, exchange: p&&p.exchange||'',
+      industry: p&&p.finnhubIndustry||'—', weburl: p&&p.weburl||null,
+      yahooUrl: 'https://finance.yahoo.com/quote/'+ticker,
+      // Contextual analysis
+      ctx: {
+        hi: hiAnalysis(q.h, curPrice),
+        lo: loAnalysis(q.l, curPrice),
+        open: openAnalysis(q.o, q.pc),
+        prevClose: prevCloseAnalysis(curPrice, q.pc),
+        vol3m: vol3mAnalysis(q.v, avg3m),
+        vol10d: vol10dAnalysis(q.v, avgV),
+        shares: sharesAnalysis(sharesOut),
+        bookVal: bookValAnalysis(bookVal, curPrice),
+        tangBook: tangBookAnalysis(tangBook, curPrice),
+        beta: betaAnalysis(betaVal)
+      },
+      news: (n||[]).slice(0,6).map(function(a){ return {
+        headline: a.headline, source: a.source, url: a.url,
+        dt: new Date(a.datetime*1000).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
+        summary: a.summary?(a.summary.slice(0,180)+'…'):''
+      };})
     };
   }
 
-  function buildFinnhubTable(d) {
+  function buildFinnhubCard(d, ticker) {
     if (!d) return '';
-    const changeColor = d.changeRaw >= 0 ? 'var(--green)' : 'var(--red)';
-    const rows = [
-      ['Price', `<span style="font-weight:700;font-size:14px">$${d.price}</span> <span style="color:${changeColor};font-size:12px">${d.change}</span>`],
-      ['Open / Prev Close', `$${d.open} / $${d.prevClose}`],
-      ['High / Low', `$${d.high} / $${d.low}`],
-      ['Volume', d.volume],
-      ['Avg Volume (10d)', d.avgVolume],
-      ['Rel Volume', `<span style="color:${parseFloat(d.relVolume)>=3?'var(--green)':'inherit'}">${d.relVolume}</span>`],
-      ['Market Cap', d.marketCap],
-      ['52W High / Low', `$${d.week52High} / $${d.week52Low}`],
-      ['Short Interest', d.shortInterest],
-      ['Short Ratio', d.shortRatio],
-      ['Beta', d.beta],
-      ['P/E Ratio', d.peRatio],
-      ['Industry', d.industry],
-    ];
-    const rowsHtml = rows.map(([k,v]) =>
-      `<tr><td style="color:var(--text4);font-size:11px;padding:6px 12px;width:45%;border-bottom:1px solid var(--border)">${k}</td><td style="font-family:'Space Mono',monospace;font-size:12px;padding:6px 12px;border-bottom:1px solid var(--border)">${v}</td></tr>`
-    ).join('');
-    return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:12px 0">
-      <div style="padding:10px 14px;background:var(--bg4);font-size:9px;letter-spacing:0.1em;color:var(--text4);text-transform:uppercase;font-family:'Space Mono',monospace;display:flex;align-items:center;gap:8px">
-        📊 LIVE MARKET DATA <span style="color:var(--green);font-size:9px">● FINNHUB</span>
-        ${d.weburl ? `<a href="${d.weburl}" target="_blank" style="color:var(--green);margin-left:auto;font-size:10px">${d.company} ↗</a>` : `<span style="margin-left:auto">${d.company}</span>`}
-      </div>
-      <table style="width:100%;border-collapse:collapse">${rowsHtml}</table>
-    </div>`;
+    var today = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+    var chgColor = d.changeRaw>=0?'#1D9E75':'#e24b4a';
+    var relColor = parseFloat(d.relVolume)>=3?'#1D9E75':'inherit';
+
+    function row(metric, value, analysis) {
+      return '<tr>'
+        + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);color:var(--text4);font-size:11px;font-family:Space Mono,monospace;width:22%;vertical-align:top">' + metric + '</td>'
+        + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-family:Space Mono,monospace;font-weight:700;width:20%;vertical-align:top">' + value + '</td>'
+        + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text3);line-height:1.5;vertical-align:top">' + (analysis||'—') + '</td>'
+        + '</tr>';
+    }
+
+    var headerLink = d.weburl
+      ? '<a href="'+d.weburl+'" target="_blank" style="color:#1D9E75;margin-left:auto;font-size:10px;text-decoration:none">'+d.company+' ↗</a>'
+      : '<span style="margin-left:auto">'+d.company+'</span>';
+
+    var yahooLink = '<a href="'+d.yahooUrl+'" target="_blank" style="color:#1D9E75;text-decoration:none">'+d.exchange+': '+ticker+' ↗</a>';
+
+    var priceDisplay = '<span style="font-size:16px;font-weight:800;color:var(--text)">$'+d.price+'</span> '
+      + '<span style="color:'+chgColor+';font-size:13px">'+d.change+'</span>';
+
+    var tableHtml = '<table style="width:100%;border-collapse:collapse">'
+      + '<thead><tr>'
+      + '<th style="padding:8px 14px;background:var(--bg4);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace">Metric</th>'
+      + '<th style="padding:8px 14px;background:var(--bg4);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace">Value</th>'
+      + '<th style="padding:8px 14px;background:var(--bg4);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace">Contextual Analysis</th>'
+      + '</tr></thead><tbody>'
+      + row("Price ("+today+")", priceDisplay, d.ctx.prevClose)
+      + row("Today's High", '$'+d.high, d.ctx.hi)
+      + row("Today's Low", '$'+d.low, d.ctx.lo)
+      + row("Open Price", '$'+d.open, d.ctx.open)
+      + row("Previous Close", '$'+d.prevClose, '<span style="color:'+chgColor+'">'+d.change+' vs yesterday</span>')
+      + row("3-Month Avg Vol", d.avg3mVolume, d.ctx.vol3m)
+      + row("10-Day Avg Vol", d.avgVolume, d.ctx.vol10d)
+      + row("Shares Outstanding", d.sharesOutstanding, d.ctx.shares)
+      + row("Book Value/Share", d.bookValue !== '—' ? '$'+d.bookValue : '—', d.ctx.bookVal)
+      + row("Tangible Book Val", d.tangBookValue !== '—' ? '$'+d.tangBookValue : '—', d.ctx.tangBook)
+      + row("Beta", d.beta, d.ctx.beta)
+      + row("Short Interest", d.shortInt, d.shortRatio !== '—' ? 'Short ratio: '+d.shortRatio+' days to cover' : '—')
+      + row("Market Cap", d.marketCap, 'Industry: '+d.industry)
+      + row("52W Range", '$'+d.lo52+' — $'+d.hi52, 'Exchange: '+yahooLink)
+      + '</tbody></table>';
+
+    return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:20px 0">'
+      + '<div style="padding:10px 14px;background:var(--bg4);font-size:9px;letter-spacing:0.1em;color:var(--text4);text-transform:uppercase;font-family:Space Mono,monospace;display:flex;align-items:center;gap:8px">'
+      + '📊 LIVE MARKET DATA <span style="color:#1D9E75">● FINNHUB</span>' + headerLink
+      + '</div>'
+      + tableHtml
+      + '</div>';
   }
 
+
   function buildFinnhubNews(d) {
-    if (!d || !d.news || d.news.length === 0) return '';
-    const items = d.news.map(n =>
-      `<div style="padding:10px 14px;border-bottom:1px solid var(--border)">
-        <div style="font-size:10px;color:var(--text4);font-family:'Space Mono',monospace;margin-bottom:4px">${n.source} · ${n.datetime}</div>
-        <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:4px">${n.headline}</div>
-        ${n.summary ? `<div style="font-size:11px;color:var(--text3);line-height:1.5">${n.summary}…</div>` : ''}
-        ${n.url ? `<a href="${n.url}" target="_blank" style="font-size:10px;color:var(--green);font-family:'Space Mono',monospace;display:inline-block;margin-top:4px">Read full article ↗</a>` : ''}
-      </div>`
-    ).join('');
-    return `<div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:12px 0">
-      <div style="padding:10px 14px;background:var(--bg4);font-size:9px;letter-spacing:0.1em;color:var(--text4);text-transform:uppercase;font-family:'Space Mono',monospace">
-        📰 RECENT NEWS <span style="color:var(--green);font-size:9px">● FINNHUB LIVE</span>
-      </div>
-      ${items}
-    </div>`;
-  } // [{parsed, result}]
+    if (!d||!d.news||!d.news.length) return '';
+    var items = d.news.map(function(n){
+      return '<div style="padding:10px 14px;border-bottom:1px solid var(--border)">'
+        +'<div style="font-size:10px;color:var(--text4);font-family:Space Mono,monospace;margin-bottom:4px">'+n.source+' · '+n.dt+'</div>'
+        +'<div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:4px">'+n.headline+'</div>'
+        +(n.summary?'<div style="font-size:11px;color:var(--text3);line-height:1.5;margin-bottom:4px">'+n.summary+'</div>':'')
+        +(n.url?'<a href="'+n.url+'" target="_blank" style="font-size:10px;color:var(--green);font-family:Space Mono,monospace">Read full article ↗</a>':'')
+        +'</div>';
+    }).join('');
+    return '<div style="background:var(--bg3);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:16px 0">'
+      +'<div style="padding:9px 14px;background:var(--bg4);font-size:9px;letter-spacing:0.1em;color:var(--text4);text-transform:uppercase;font-family:Space Mono,monospace">📰 FINNHUB NEWS FEED <span style="color:var(--green)">● LIVE</span></div>'
+      +items+'</div>';
+  }
+
   let currentImageBase64 = null;
   let currentImageMime = null;
   const SIGNAL_REGEX = new RegExp(
@@ -1130,27 +1207,27 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('analyzeBtn').addEventListener('click', runAnalysis);
 
   // Clear button
-  var _cb = document.getElementById('clearBtn');
-  if (_cb) {
-    _cb.addEventListener('click', function() {
+  (function() {
+    var cb = document.getElementById('clearBtn');
+    if (!cb) return;
+    cb.addEventListener('click', function() {
       document.getElementById('result').innerHTML = '';
       signalHistory = [];
       updateHistory();
-      var _si = document.getElementById('signalInput');
-      if (_si) _si.value = '';
-      var _pr = document.getElementById('parsedRow');
-      if (_pr) _pr.className = 'parsed-row';
-      // Clear image
+      var si = document.getElementById('sigInput') || document.getElementById('signalInput');
+      if (si) si.value = '';
+      var pr = document.getElementById('parsedRow');
+      if (pr) pr.className = 'parsed-row';
       currentImageBase64 = null;
       currentImageMime = null;
-      var _pi = document.getElementById('previewImg');
-      if (_pi) _pi.src = '';
-      var _up = document.getElementById('uploadPreview');
-      if (_up) _up.style.display = 'none';
-      var _id = document.getElementById('imgDetected');
-      if (_id) _id.className = 'img-detected';
+      var pi = document.getElementById('previewImg');
+      if (pi) pi.src = '';
+      var up = document.getElementById('uploadPreview');
+      if (up) up.style.display = 'none';
+      var id = document.getElementById('imgDetected');
+      if (id) id.className = 'img-detected';
     });
-  }
+  })();
   document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runAnalysis(); });
 
   // Rate limit state
@@ -1229,10 +1306,9 @@ document.addEventListener('DOMContentLoaded', function() {
       .map(p => p.text)
       .join('\n');
     if (!text.trim()) throw new Error('Empty response from AI. Try again in a few seconds.');
-    // Strip any preamble text Gemini adds before the first # heading
-    const firstHeading = text.indexOf('\n# ');
-    if (firstHeading > 0) return text.slice(firstHeading).trim();
-    // Also handle if it starts with # directly
+    // Strip preamble before first # heading
+    const firstH = text.indexOf('\n# ');
+    if (firstH > 0) return text.slice(firstH).trim();
     if (text.trimStart().startsWith('# ')) return text.trimStart();
     return text.trim();
   }
@@ -1241,28 +1317,48 @@ document.addEventListener('DOMContentLoaded', function() {
   function renderMarkdown(md) {
     var out = md;
 
-    // Tables — process before other replacements
-    out = out.replace(/(\|.+\|\n)+/g, function(tableBlock) {
-      var rows = tableBlock.trim().split('\n');
-      var html = '<table>';
-      var isFirst = true;
-      rows.forEach(function(row) {
-        // Skip separator rows like |---|---|
-        if (/^\|[\s\-:]+\|/.test(row)) {
-          if (isFirst) { html += '</thead><tbody>'; isFirst = false; }
-          return;
+    // Tables — line by line
+    var lines = out.split('\n');
+    var result = [];
+    var tableBuf = [];
+    for (var li = 0; li < lines.length; li++) {
+      var ln = lines[li];
+      if (ln.trim().charAt(0) === '|' && ln.trim().slice(-1) === '|') {
+        tableBuf.push(ln);
+      } else {
+        if (tableBuf.length) {
+          var thtml = '<table>';
+          var isHead = true;
+          for (var ti = 0; ti < tableBuf.length; ti++) {
+            var row = tableBuf[ti];
+            if (/^\|[\s\-:|]+\|/.test(row.trim())) {
+              if (isHead) { thtml += '</thead><tbody>'; isHead = false; }
+              continue;
+            }
+            var cells = row.split('|').filter(function(c){ return c.trim() !== ''; });
+            var tag = isHead ? 'th' : 'td';
+            thtml += '<tr>' + cells.map(function(c){ return '<'+tag+'>'+c.trim()+'</'+tag+'>'; }).join('') + '</tr>';
+            if (isHead) { thtml += '</thead><tbody>'; isHead = false; }
+          }
+          thtml += '</tbody></table>';
+          result.push(thtml);
+          tableBuf = [];
         }
-        var cells = row.split('|').filter(function(c) { return c.trim() !== ''; });
-        var tag = isFirst ? 'th' : 'td';
-        html += '<tr>' + cells.map(function(c) {
-          return '<' + tag + '>' + c.trim() + '</' + tag + '>';
-        }).join('') + '</tr>';
-        if (isFirst) html += '</thead><tbody>';
-        isFirst = false;
-      });
-      html += '</tbody></table>';
-      return html;
-    });
+        result.push(ln);
+      }
+    }
+    if (tableBuf.length) {
+      var thtml2 = '<table><tbody>';
+      for (var ti2 = 0; ti2 < tableBuf.length; ti2++) {
+        var row2 = tableBuf[ti2];
+        if (/^\|[\s\-:|]+\|/.test(row2.trim())) continue;
+        var cells2 = row2.split('|').filter(function(c){ return c.trim() !== ''; });
+        thtml2 += '<tr>' + cells2.map(function(c){ return '<td>'+c.trim()+'</td>'; }).join('') + '</tr>';
+      }
+      thtml2 += '</tbody></table>';
+      result.push(thtml2);
+    }
+    out = result.join('\n');
 
     // Headers
     out = out.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
@@ -1270,12 +1366,15 @@ document.addEventListener('DOMContentLoaded', function() {
     out = out.replace(/^## (.+)$/gm, '<h2>$1</h2>');
     out = out.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
+    // Links BEFORE bold to protect URLs
+    out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" style="color:var(--green);text-decoration:none">$1 &#8599;</a>');
+
     // Bold + italic
     out = out.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
     out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     out = out.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
-    // Inline code — avoid backtick conflicts by using a placeholder
+    // Inline code
     out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
 
     // Horizontal rule
@@ -1284,160 +1383,95 @@ document.addEventListener('DOMContentLoaded', function() {
     // Blockquote
     out = out.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
 
-    // Lists — unordered
+    // Lists — collect <li> runs
     out = out.replace(/^[\-\*] (.+)$/gm, '<li>$1</li>');
-    out = out.replace(/^(\d+)\. (.+)$/gm, '<li>$2</li>');
-    out = out.replace(/(<li>[\s\S]*?<\/li>\n?)+/g, function(m) { return '<ul>' + m + '</ul>'; });
+    out = out.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+    // Wrap consecutive li elements
+    var liLines = out.split('\n');
+    var liResult = [];
+    var inList = false;
+    for (var i = 0; i < liLines.length; i++) {
+      if (liLines[i].trim().startsWith('<li>')) {
+        if (!inList) { liResult.push('<ul>'); inList = true; }
+        liResult.push(liLines[i]);
+      } else {
+        if (inList) { liResult.push('</ul>'); inList = false; }
+        liResult.push(liLines[i]);
+      }
+    }
+    if (inList) liResult.push('</ul>');
+    out = liResult.join('\n');
 
-    // Links
-    out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
-
-    // Paragraphs
-    out = out.replace(/\n\n/g, '</p><p>');
+    // Paragraphs — join double newlines
+    out = out.split('\n\n').join('</p><p>');
     out = '<p>' + out + '</p>';
-    out = out.replace(/\n/g, '<br>');
+    out = out.split('\n').join('<br>');
 
     return out;
   }
 
 
-  async function analyzeWithImage(apiKey, rawText, signals) {
-    const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-    const now = new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', timeZoneName:'short' });
-
-    const prompt = `You are a senior Wall Street day trading analyst. Today is ${today}, time is ${now}.
-
-  The user has uploaded a screenshot from the Pro Ticker Signals app.
-  ${rawText ? 'They also provided text: "' + rawText.slice(0,300) + '"' : ''}
-
-  STEP 1: Extract ALL trade signals from the image (format: TICKER Long > X.XX Short < Y.YY - TIME ET)
-  STEP 2: For each ticker found, search the internet RIGHT NOW for:
-  - Any news, press releases, SEC filings, or announcements published in the last 24-72 hours
-  - Current stock price and % change today
-  - Market cap, float, short interest, relative volume
-
-  Write your full analysis in clean markdown. For each ticker use this structure:
-
-  # [TICKER] — [Company Name]
-  **[LONG / SHORT / NEUTRAL / AVOID]** | Confidence: [X]% | [Signal levels]
-
-  ## 📡 Catalyst Scan
-  [What you found on the internet. Be specific — name the source, publication time, and what the article says. If news was published within 30 min of the signal time, highlight that prominently as a NEWS-DRIVEN CATALYST.]
-
-  ## 📰 Recent News
-  - **[Source] ([time ago])** — [Headline and 1-2 sentence summary]
-  - [continue for each article found]
-
-  ## 📊 Market Data
-  | Metric | Value |
-  |--------|-------|
-  | Price | $X.XX (+X%) |
-  | Market Cap | $XXM |
-  | Float | XXM shares |
-  | Avg Volume | X.XM |
-  | Rel Volume | X.Xx |
-  | Short Float | X% |
-  | 52W Range | $X — $X |
-
-  ## 🎯 Trade Analysis
-  [2-3 paragraphs: Why this signal is worth taking or avoiding. Reference the specific catalyst, price levels, float size, and risk factors.]
-
-  ## ⚠️ Risk Factors
-  - [Risk 1]
-  - [Risk 2]
-
-  ---
-
-  Search the web thoroughly. If you find a press release or news article published shortly before the signal time, that is the most important thing to highlight.`;
-
-    const parts = [{ text: prompt }];
-    if (currentImageBase64) {
-      parts.push({ inline_data: { mime_type: currentImageMime || 'image/jpeg', data: currentImageBase64 } });
-    }
-
-    const data = await geminiCallWithRetry(apiKey, {
-      contents: [{ parts }],
-      tools: [{ google_search: {} }],
-      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
-    });
-
-    const markdown = extractTextFromResponse(data);
-    renderMarkdownResults(markdown, signals);
-  }
-
-
   async function analyzeSignals(apiKey, signals, rawText) {
-    const today = new Date().toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
-    const now = new Date().toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', timeZoneName:'short' });
-    const signalList = signals.map(s => s.raw).join('\n');
-    const tickerList = signals.map(s => s.ticker).join(', ');
+    var today = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+    var now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZoneName:'short'});
+    var signalList = signals.map(function(s){return s.raw;}).join('\n');
+    var tickerList = signals.map(function(s){return s.ticker;}).join(', ');
 
-    // Fetch live Finnhub data for all tickers in parallel
-    const finnhubMap = {};
+    // Fetch Finnhub data for all tickers in parallel
+    var finnhubMap = {};
     if (FINNHUB_KEY) {
-      const finnhubResults = await Promise.all(signals.map(s => getFinnhubData(s.ticker)));
-      signals.forEach((s, i) => { finnhubMap[s.ticker] = finnhubResults[i]; });
+      var fhResults = await Promise.all(signals.map(function(s){return getFinnhubData(s.ticker);}));
+      signals.forEach(function(s,i){ finnhubMap[s.ticker] = fhResults[i]; });
     }
 
-    // Build live data context string to inject into prompt
-    const liveDataContext = signals.map(s => {
-      const d = finnhubMap[s.ticker];
+    // Build live data context for prompt
+    var liveCtx = signals.map(function(s){
+      var d = finnhubMap[s.ticker];
       if (!d) return '';
-      return `${s.ticker} LIVE DATA (from Finnhub, fetched right now):
-- Price: $${d.price} (${d.change} today)
-- Open: $${d.open} | High: $${d.high} | Low: $${d.low}
-- Volume today: ${d.volume} | 10d Avg Volume: ${d.avgVolume} | Rel Volume: ${d.relVolume}
-- Market Cap: ${d.marketCap} | 52W Range: $${d.week52Low} — $${d.week52High}
-- Short Interest: ${d.shortInterest} | Short Ratio: ${d.shortRatio}
-- Industry: ${d.industry}`;
+      return s.ticker+' LIVE DATA (Finnhub, right now):\n'
+        +'Price: $'+d.price+' ('+d.change+') | Open: $'+d.open+' | High: $'+d.high+' | Low: $'+d.low+'\n'
+        +'Volume: '+d.volume+' | Avg Vol (10d): '+d.avgVolume+' | Rel Volume: '+d.relVolume+'\n'
+        +'Market Cap: '+d.marketCap+' | 52W: $'+d.lo52+' — $'+d.hi52+'\n'
+        +'Short Interest: '+d.shortInt+' | Industry: '+d.industry;
     }).filter(Boolean).join('\n\n');
 
-    const prompt = `You are a senior Wall Street day trading analyst. Today is ${today}, current time is ${now}.
-IMPORTANT: Start your response IMMEDIATELY with the first # heading. Do NOT write any introduction, preamble, or summary sentence before the ticker headings.
+    var prompt = 'You are a senior Wall Street day trading analyst with live internet access. Today is '+today+', current time is '+now+'.\n\n'
+      +'CRITICAL RULES:\n'
+      +'1. Start IMMEDIATELY with the first # heading — NO preamble or introduction\n'
+      +'2. Every news claim, catalyst, and risk factor MUST have a real working hyperlink [text](url)\n'
+      +'3. Only use URLs you actually found via web search — never fabricate URLs\n'
+      +'4. Market data must state the exact date it is from\n\n'
+      +'SIGNALS:\n'+signalList+'\n\n'
+      +(rawText && rawText !== signalList ? 'CONTEXT: "'+rawText.slice(0,300)+'"\n\n' : '')
+      +(liveCtx ? 'LIVE MARKET DATA FROM FINNHUB (use these exact numbers — do NOT search for price/volume):\n'+liveCtx+'\n\n' : '')
+      +'For EACH ticker ('+tickerList+'), produce EXACTLY this format:\n\n'
+      +'# [TICKER] — [Full Company Name]\n'
+      +'**[LONG / SHORT / NEUTRAL / AVOID]** | Confidence: [X]% | Long > $[price] | Short < $[price]\n\n'
+      +'## 📡 Catalyst Scan\n'
+      +'[If article published within 30 min of signal time, start with: ⚡ NEWS-DRIVEN CATALYST —]\n'
+      +'[2-3 sentences on what was announced, when, and why it moves the stock. Every claim needs inline hyperlink: e.g. "announced ([Source Name](https://...))"]\n\n'
+      +'## 📰 Recent News\n'
+      +'- **[Source]** — [Date] — [[Full Headline]](real_url_here). [1-2 sentence summary]\n'
+      +'[List ALL relevant articles found. Every item needs a real working URL. Most recent first.]\n\n'
+      +'## 📊 Market Data\n'
+      +'[The live Finnhub table will be injected here automatically — just write a 1-line note: "Live data provided by Finnhub."]\n\n'
+      +'## 🎯 Trade Analysis\n'
+      +'[Para 1: Primary catalyst and why it moves the stock. Inline link to source.]\n'
+      +'[Para 2: Technical setup — current price vs signal triggers, float, rel volume, momentum.]\n'
+      +'[Para 3 ANALYST OPINION: "Based on [specific catalyst], current price of $X.XX, and [specific data point], this analyst [recommends / does not recommend] entering a [long/short] at this time because [specific reason]. Entry is confirmed above $X.XX and invalidated below $X.XX."]\n\n'
+      +'## ⚠️ Risk Factors\n'
+      +'- **[Risk Name]**: [Specific description with numbers]. ([Source Name](real_url))\n'
+      +'[Every risk needs a cited source with real URL]\n\n'
+      +'---\n'
+      +(signals.length > 1 ? 'Repeat FULL block for EACH ticker.\n' : '');
 
-SIGNALS TO ANALYZE:
-${signalList}
-
-${rawText && rawText !== signalList ? 'FULL MESSAGE CONTEXT: "' + rawText.slice(0,400) + '"' : ''}
-
-${liveDataContext ? `LIVE MARKET DATA (already fetched — use these exact numbers in your analysis, do NOT search for price data):
-${liveDataContext}` : ''}
-
-YOUR TASK — For EACH ticker (${tickerList}):
-1. Search "[TICKER] news today", "[TICKER] press release", "[TICKER] SEC filing", "[TICKER] earnings"
-2. Find ANY article published in the last 24-72 hours — GlobeNewsWire, PR Newswire, SEC EDGAR, Bloomberg, Reuters
-3. If an article was published within 30 min of the signal time, that is the key catalyst — highlight it
-4. DO NOT search for price/volume data — it is already provided above from Finnhub
-
-Write full analysis in clean markdown for EACH ticker:
-
-# [TICKER] — [Company Name]
-**[LONG / SHORT / NEUTRAL / AVOID]** | Confidence: [X]% | Long > [price] | Short < [price] (if applicable)
-
-## 📡 Catalyst Scan
-[Name the exact source, URL, and publication time. Call out ⚡ NEWS-DRIVEN CATALYST if published within 30 min of signal.]
-
-## 📰 Recent News
-- **[Source] — [time]** — [Headline]. [1-2 sentence summary]
-
-## 🎯 Trade Analysis
-[3-4 sentences. Reference the live price vs signal trigger levels, rel volume, short interest, and any catalyst found.]
-
-## ⚠️ Risk Factors
-- [Specific risk]
-
----
-${signals.length > 1 ? 'Repeat for EACH ticker.' : ''}`;
-
-    const data = await geminiCallWithRetry(apiKey, {
+    var data = await geminiCallWithRetry(apiKey, {
       contents: [{ role: 'user', parts: [{ text: prompt }] }],
       tools: [{ google_search: {} }],
       generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
     });
 
-    const markdown = extractTextFromResponse(data);
-
-    // Inject Finnhub live data cards into the rendered output
+    var markdown = extractTextFromResponse(data);
     renderMarkdownResults(markdown, signals, finnhubMap);
   }
 
@@ -1465,71 +1499,71 @@ ${signals.length > 1 ? 'Repeat for EACH ticker.' : ''}`;
     // Add to session signalHistory
     signals.forEach(s => {
       if (s.ticker !== 'IMAGE' && !signalHistory.find(h => h.ticker === s.ticker)) {
-        signalHistory.unshift({ ticker: s.ticker, markdown, signals, finnhubMap: finnhubMap || {} });
+        signalHistory.unshift({ ticker: s.ticker, markdown: markdown, signals: signals, finnhubMap: finnhubMap||{} });
       }
     });
     // If image-only, try to extract tickers from markdown headings
     if (signals[0]?.ticker === 'IMAGE') {
       const found = [...markdown.matchAll(/^# ([A-Z]{2,6})/gm)].map(m => m[1]);
       found.forEach(t => {
-        if (!signalHistory.find(h => h.ticker === t)) signalHistory.unshift({ ticker: t, markdown, signals, finnhubMap: finnhubMap || {} });
+        if (!signalHistory.find(h => h.ticker === t)) signalHistory.unshift({ ticker: t, markdown: markdown, signals: signals, finnhubMap: finnhubMap||{} });
       });
     }
     updateHistory();
-    const _resultEl = document.getElementById('result');
-    const _existingCards = _resultEl.querySelectorAll('.md-card');
-    const _newDiv = document.createElement('div');
-    _newDiv.innerHTML = buildMarkdownCard(markdown);
-    if (_existingCards.length === 0) {
-      _resultEl.innerHTML = '';
-    } else {
-      const _divider = document.createElement('div');
-      _divider.style.cssText = 'border-top:1px solid var(--border);margin:8px 0';
-      _resultEl.appendChild(_divider);
-    }
-    _resultEl.appendChild(_newDiv);
-    _newDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('result').innerHTML = buildMarkdownCard(markdown, finnhubMap);
   }
 
   function buildMarkdownCard(markdown, finnhubMap) {
     finnhubMap = finnhubMap || {};
-    // Split on ticker sections (# TICKER heading) if multiple
-    const sections = markdown.split(/(?=^# [A-Z])/m).filter(s => s.trim());
+    var sections = markdown.split(/(?=^# [A-Z])/m).filter(function(s){ return s.trim(); });
+    if (!sections.length) sections = [markdown];
 
-    const cardsHtml = sections.map(section => {
-      // Extract verdict for border color
-      const verdictMatch = section.match(/\*\*(LONG|SHORT|NEUTRAL|AVOID)\*\*/);
-      const verdict = verdictMatch ? verdictMatch[1] : null;
-      const borderColor = verdict === 'LONG' ? 'var(--green)' : verdict === 'SHORT' ? 'var(--red)' :
-        verdict === 'AVOID' ? 'var(--amber)' : 'var(--border)';
+    return sections.map(function(section) {
+      var verdictMatch = section.match(/\*\*(LONG|SHORT|NEUTRAL|AVOID)\*\*/);
+      var verdict = verdictMatch ? verdictMatch[1] : null;
+      var borderColor = verdict==='LONG'?'var(--green)':verdict==='SHORT'?'var(--red)':verdict==='AVOID'?'var(--amber)':'var(--border)';
 
-      // Extract ticker from heading
-      const tickerMatch = section.match(/^# ([A-Z]{1,6})/m);
-      const ticker = tickerMatch ? tickerMatch[1] : null;
-      const finnhubData = ticker ? finnhubMap[ticker] : null;
+      var tickerMatch = section.match(/^# ([A-Z]{1,6})/m);
+      var ticker = tickerMatch ? tickerMatch[1] : null;
+      var fd = ticker ? finnhubMap[ticker] : null;
 
-      // Remove ## 📊 Market Data table from markdown — replaced by live Finnhub card
-      let cleanSection = section;
-      if (finnhubData) {
-                cleanSection = section.replace(/## [^\n]*Market Data[\s\S]*?(?=\n## |\n---|\n# |$)/, '');
+      // Remove the placeholder Market Data line from Gemini output
+      var cleanSection = (function(s) {
+        var idx = s.indexOf('## ');
+        while (idx !== -1) {
+          var lineEnd = s.indexOf('\n', idx);
+          var heading = lineEnd !== -1 ? s.slice(idx, lineEnd) : s.slice(idx);
+          if (heading.indexOf('Market Data') !== -1) {
+            var nextSection = s.indexOf('\n## ', idx + 4);
+            var nextRule = s.indexOf('\n---', idx + 4);
+            var nextH1 = s.indexOf('\n# ', idx + 4);
+            var ends = [nextSection, nextRule, nextH1].filter(function(x){ return x !== -1; });
+            var endPos = ends.length ? Math.min.apply(null, ends) : s.length;
+            s = s.slice(0, idx) + s.slice(endPos);
+            break;
+          }
+          idx = s.indexOf('## ', idx + 3);
+        }
+        return s;
+      })(section)
+
+      var renderedMd = renderMarkdown(cleanSection);
+      var finnhubTable = fd ? buildFinnhubCard(fd, ticker) : '';
+      var finnhubNews = fd && fd.news && fd.news.length ? buildFinnhubNews(fd) : '';
+
+      // Inject live table after the Catalyst Scan section
+      var finalHtml = renderedMd.replace(
+        /(<h2[^>]*>[^<]*Catalyst[^<]*<\/h2>)([\s\S]*?)(<h2|$)/,
+        function(match, h2, body, next) { return h2 + body + finnhubTable + next; }
+      );
+      if (finnhubTable && finalHtml === renderedMd) {
+        finalHtml = renderedMd + finnhubTable;
       }
 
-      const liveMarketCard = finnhubData ? buildFinnhubTable(finnhubData) : '';
-      const liveNewsCard = finnhubData && finnhubData.news && finnhubData.news.length > 0
-        ? buildFinnhubNews(finnhubData) : '';
-
-      // Inject live cards after the catalyst scan section
-      const renderedMd = renderMarkdown(cleanSection);
-      const injected = renderedMd
-        .replace(/(<h2[^>]*>.*?📡.*?<\/h2>[\s\S]*?)(<h2|$)/, '$1' + liveMarketCard + '$2')
-        || renderedMd + liveMarketCard;
-
-      return '<div class="md-card" style="border-top: 3px solid ' + borderColor + '">' +
-        '<div class="md-body">' + injected + liveNewsCard + '</div>' +
-        '</div>';
+      return '<div class="md-card" style="border-top:3px solid '+borderColor+';margin-bottom:16px">'
+        + '<div class="md-body">' + finalHtml + finnhubNews + '</div>'
+        + '</div>';
     }).join('');
-
-    return cardsHtml || '<div class="md-card"><div class="md-body">' + renderMarkdown(markdown) + '</div></div>';
   }
   function updateHistory() {
     const strip = document.getElementById('historyStrip');
