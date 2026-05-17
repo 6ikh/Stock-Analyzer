@@ -797,139 +797,220 @@ document.addEventListener('DOMContentLoaded', function() {
   async function getFinnhubData(ticker) {
     var from = new Date(Date.now()-3*86400000).toISOString().split('T')[0];
     var to = new Date().toISOString().split('T')[0];
-    var [q, p, f, n] = await Promise.all([
+    var [q, p, f, n, own] = await Promise.all([
       fhFetch('/quote?symbol='+ticker),
       fhFetch('/stock/profile2?symbol='+ticker),
       fhFetch('/stock/metric?symbol='+ticker+'&metric=all'),
-      fhFetch('/company-news?symbol='+ticker+'&from='+from+'&to='+to)
+      fhFetch('/company-news?symbol='+ticker+'&from='+from+'&to='+to),
+      fhFetch('/stock/ownership?symbol='+ticker+'&limit=1')
     ]);
     if (!q || q.c === 0) return null;
     var m = f && f.metric || {};
     var chg = q.c && q.pc ? ((q.c-q.pc)/q.pc*100) : null;
     var avgV = m['10DayAverageTradingVolume'] ? m['10DayAverageTradingVolume']*1e6 : null;
     var relV = (q.v && avgV) ? (q.v/avgV).toFixed(1)+'x' : '—';
-    // Calculate contextual values
+    // ── Computed values ──────────────────────────────────────────
     var avg3m = m['3MonthAverageTradingVolume'] ? m['3MonthAverageTradingVolume']*1e6 : null;
-    var relV3m = (q.v && avg3m) ? (q.v/avg3m).toFixed(1)+'x' : '—';
-    var bookVal = m['bookValuePerShareQuarterly'] || m['bookValuePerShareAnnual'] || null;
-    var tangBook = m['tangibleBookValuePerShareQuarterly'] || m['tangibleBookValuePerShareAnnual'] || null;
+    var avg10d = m['10DayAverageTradingVolume'] ? m['10DayAverageTradingVolume']*1e6 : null;
     var sharesOut = p && p.shareOutstanding ? p.shareOutstanding*1e6 : null;
+    var floatShares = m['floatShares'] || (p && p.shareOutstanding ? p.shareOutstanding*1e6 : null);
+    var bookVal = m['bookValuePerShareQuarterly'] || m['bookValuePerShareAnnual'] || null;
     var betaVal = m['beta'] || null;
+    var chg = q.c && q.pc ? ((q.c - q.pc) / q.pc * 100) : null;
 
-    // Contextual analysis generators
-    function hiAnalysis(hi, cur) {
-      if (!hi || !cur) return '—';
+    // Relative volume vs 10-day
+    var relV10d = (q.v && avg10d) ? (q.v/avg10d) : null;
+    var relVStr = relV10d ? relV10d.toFixed(2)+'x' : '—';
+
+    // Float rotation: today vol / float (how many times the float traded today)
+    var floatRotation = (q.v && floatShares && floatShares > 0)
+      ? (q.v / floatShares).toFixed(2)+'x'
+      : '—';
+
+    // Overnight gap % = (open - prevClose) / prevClose * 100
+    var gapPct = (q.o && q.pc) ? ((q.o - q.pc) / q.pc * 100) : null;
+    var gapStr = gapPct !== null ? (gapPct >= 0 ? '+' : '') + gapPct.toFixed(2) + '%' : '—';
+
+    // Short interest % of float
+    var shortIntRaw = m['shortInterest'] || null;
+    var shortPctFloat = (shortIntRaw && floatShares) ? (shortIntRaw / floatShares * 100).toFixed(2)+'%' : '—';
+
+    // Dilution flag based on shares vs float
+    function dilutionFlag(shares, mktCap) {
+      if (!shares) return { flag: '—', ctx: '—' };
+      var m2 = shares/1e6;
+      if (m2 > 500) return { flag: '🚨 HIGH RISK', ctx: fmtV(shares)+' shares outstanding. Extreme dilution risk — company has printed a dangerous amount of shares. Avoid unless catalyst is exceptional.' };
+      if (m2 > 100) return { flag: '⚠️ MODERATE', ctx: fmtV(shares)+' shares outstanding. Meaningful dilution risk. Monitor for shelf offerings or ATM programs.' };
+      if (m2 < 10) return { flag: '✅ LOW', ctx: fmtV(shares)+' shares — very low float micro-cap. Thin supply means news can move price dramatically in both directions.' };
+      return { flag: '✅ NORMAL', ctx: fmtV(shares)+' shares outstanding. No immediate dilution concern at this share count.' };
+    }
+
+    function newsCatFlag(newsArr) {
+      if (!newsArr || !newsArr.length) return '—';
+      var headlines = newsArr.map(function(n){ return (n.headline||'').toLowerCase(); }).join(' ');
+      if (/fda|approval|cleared|approval|nda|bla|pdufa/i.test(headlines)) return '💊 FDA / Biotech Catalyst';
+      if (/contract|government|dod|navy|army|defense|pentagon|military/i.test(headlines)) return '🏛️ Government Contract';
+      if (/partnership|agreement|mou|memorandum|collaboration/i.test(headlines)) return '🤝 Partnership / MoU';
+      if (/earnings|revenue|eps|beat|miss|quarterly|results/i.test(headlines)) return '📊 Earnings Catalyst';
+      if (/offering|dilut|shelf|atm|warrant|convert/i.test(headlines)) return '⚠️ Dilution / Offering';
+      if (/bitcoin|crypto|blockchain|nft|token/i.test(headlines)) return '₿ Crypto / Blockchain Pivot';
+      if (/ai|artificial intelligence|machine learning|chatgpt|llm/i.test(headlines)) return '🤖 AI Announcement';
+      if (/merger|acqui|buyout|takeover/i.test(headlines)) return '🏢 M&A Activity';
+      if (/short|squeeze|retail|reddit|wsb/i.test(headlines)) return '🎯 Short Squeeze Play';
+      if (/compliance|nasdaq|nyse|listing|delist/i.test(headlines)) return '📋 Exchange Compliance';
+      return '📰 General News';
+    }
+
+    // ── Contextual analysis generators ────────────────────────────────
+    function ctxGap(gap) {
+      if (gap === null) return '—';
+      if (gap > 20) return '🚀 Gapped up +'+gap.toFixed(1)+'% overnight — extreme pre-market catalyst. High fade risk after open.';
+      if (gap > 5) return 'Gapped up +'+gap.toFixed(1)+'% — strong overnight catalyst. Bullish opening bias.';
+      if (gap < -10) return '🔻 Gapped down '+gap.toFixed(1)+'% — significant overnight negative catalyst or profit-taking.';
+      if (gap < -3) return 'Gapped down '+gap.toFixed(1)+'% — weak opening. Watch for further selling.';
+      return 'Opened near flat vs prior close ('+gap.toFixed(1)+'%) — no significant gap, organic movement.';
+    }
+    function ctxHi(hi, cur) {
+      if (!hi||!cur) return '—';
       var pct = ((cur-hi)/hi*100);
-      if (pct < -20) return 'Price is ' + Math.abs(pct.toFixed(0)) + '% below today\'s high — significant momentum has faded.';
-      if (pct < -10) return 'Price has pulled back ' + Math.abs(pct.toFixed(0)) + '% from the high — watch for support.';
-      if (pct < -5) return 'Slight pullback from intraday high — still in strong territory.';
-      return 'Trading near intraday high — strong momentum maintained.';
+      if (pct < -25) return '⚠️ Price is '+Math.abs(pct.toFixed(0))+'% below today\'s high — significant momentum has faded. Sellers in control.';
+      if (pct < -10) return 'Price has pulled back '+Math.abs(pct.toFixed(0))+'% from the intraday high — watch for support.';
+      if (pct < -3) return 'Slight pullback from high — still in strong territory.';
+      return '🔥 Trading near intraday high — strong momentum maintained.';
     }
-    function loAnalysis(lo, cur) {
-      if (!lo || !cur) return '—';
+    function ctxLo(lo, cur) {
+      if (!lo||!cur) return '—';
       var pct = ((cur-lo)/lo*100);
-      if (pct < 5) return '⚠️ Price is dangerously close to today\'s low — high risk of breakdown.';
-      if (pct < 15) return 'Some cushion above the low but remain cautious of a retest.';
-      return 'Healthy distance from today\'s low — downside floor is holding.';
+      if (pct < 3) return '🚨 Dangerously close to today\'s low ($'+fmtN(lo,2)+') — high breakdown risk. Stop-loss critical.';
+      if (pct < 10) return 'Some cushion above low but watch for retest of $'+fmtN(lo,2)+'.';
+      return 'Healthy distance above today\'s low ($'+fmtN(lo,2)+') — downside floor holding.';
     }
-    function openAnalysis(open, prevClose) {
-      if (!open || !prevClose) return '—';
+    function ctxOpen(open, prevClose) {
+      if (!open||!prevClose) return '—';
       var gap = ((open-prevClose)/prevClose*100);
-      if (gap > 10) return '⚡ Aggressive gap up of +' + gap.toFixed(1) + '% at open — high momentum but also high fade risk.';
-      if (gap > 3) return 'Gapped up ' + gap.toFixed(1) + '% at the open — bullish signal with catalyst.';
-      if (gap < -3) return 'Gapped down ' + Math.abs(gap.toFixed(1)) + '% — bearish opening, proceed cautiously.';
-      return 'Opened near previous close — no significant gap, organic movement.';
+      if (gap > 15) return '⚡ Aggressive gap up of +'+gap.toFixed(1)+'% at 9:30 AM — extreme pre-market momentum. Watch for opening range breakout or fade.';
+      if (gap > 3) return 'Gapped up '+gap.toFixed(1)+'% at the open — bullish signal with catalyst.';
+      if (gap < -5) return 'Gapped down '+Math.abs(gap.toFixed(1))+'% at open — bearish start. Wait for stabilization.';
+      return 'Opened near previous close — no significant gap, price discovery in progress.';
     }
-    function prevCloseAnalysis(cur, prev) {
-      if (!cur || !prev) return '—';
-      var chgPct = ((cur-prev)/prev*100);
-      if (chgPct > 20) return '🔥 Up ' + chgPct.toFixed(1) + '% from yesterday — exceptional day, watch for profit-taking.';
-      if (chgPct > 5) return 'Up ' + chgPct.toFixed(1) + '% vs prior close — confirmed net winner today.';
-      if (chgPct < -5) return 'Down ' + Math.abs(chgPct.toFixed(1)) + '% from yesterday — net loser, caution warranted.';
-      return 'Roughly flat vs prior close — low conviction day.';
+    function ctxPrevClose(cur, prev) {
+      if (!cur||!prev) return '—';
+      var c = ((cur-prev)/prev*100);
+      if (c > 30) return '🔥 Up '+c.toFixed(1)+'% from yesterday\'s close — exceptional day. Watch for profit-taking near EOD.';
+      if (c > 10) return 'Up '+c.toFixed(1)+'% vs prior close — confirmed net winner today.';
+      if (c > 0) return 'Up '+c.toFixed(1)+'% — modest gain over yesterday.';
+      if (c < -10) return '📉 Down '+Math.abs(c.toFixed(1))+'% — significant net loser today. Caution warranted.';
+      return 'Down '+Math.abs(c.toFixed(1))+'% vs yesterday — net loser. Monitor for recovery.';
     }
-    function vol3mAnalysis(vol, avg) {
-      if (!vol || !avg) return '—';
-      var mult = (vol/avg);
-      if (mult > 10) return '🚀 Volume is ' + mult.toFixed(1) + 'x the 3-month average — this is a rare, extreme hyper-active event.';
-      if (mult > 5) return 'Volume is ' + mult.toFixed(1) + 'x the 3M average — significant institutional or retail surge.';
-      if (mult > 2) return 'Above-average activity at ' + mult.toFixed(1) + 'x — healthy momentum confirmation.';
-      return 'Volume near 3M average — no unusual spike detected.';
+    function ctxVol3m(vol, avg) {
+      if (!vol||!avg) return '—';
+      var x = vol/avg;
+      if (x > 15) return '🚀 Volume is '+x.toFixed(1)+'x the 3-month average — this is an exceptionally rare, hyper-active event. Institutional or coordinated activity likely.';
+      if (x > 5) return 'Volume is '+x.toFixed(1)+'x the 3M average — significant surge vs historical norm.';
+      if (x > 2) return 'Above 3M average by '+x.toFixed(1)+'x — healthy momentum confirmation.';
+      return 'Volume near 3M average ('+x.toFixed(1)+'x) — no major spike vs historical baseline.';
     }
-    function vol10dAnalysis(vol, avg) {
-      if (!vol || !avg) return '—';
-      var mult = (vol/avg);
-      if (mult > 5) return '🔥 ' + mult.toFixed(1) + 'x the 10-day average — retail FOMO is very much alive.';
-      if (mult > 2) return mult.toFixed(1) + 'x 10-day average — momentum is healthy and building.';
-      if (mult < 0.8) return '⚠️ Below 10-day average — retail interest may be fading. Momentum health concern.';
-      return 'Roughly in line with 10-day average — steady but not explosive.';
+    function ctxVol10d(vol, avg) {
+      if (!vol||!avg) return '—';
+      var x = vol/avg;
+      if (x > 5) return '🔥 '+x.toFixed(1)+'x the 10-day average — retail FOMO is very much alive and accelerating.';
+      if (x > 2) return x.toFixed(1)+'x 10-day average — momentum healthy and building.';
+      if (x < 0.7) return '⚠️ Only '+x.toFixed(1)+'x the 10-day avg — retail interest fading. Momentum health concern.';
+      return 'In line with 10-day average ('+x.toFixed(1)+'x) — steady but not explosive.';
     }
-    function sharesAnalysis(shares) {
-      if (!shares) return '—';
-      var m = shares/1e6;
-      if (m > 500) return '⚠️ ' + m.toFixed(0) + 'M shares outstanding — very high dilution risk. Large supply overhead.';
-      if (m > 100) return m.toFixed(0) + 'M shares — moderate float size. Manageable but watch for dilution.';
-      if (m < 20) return '🎯 Only ' + m.toFixed(1) + 'M shares — low float micro-cap. Small buys can move price significantly.';
-      return m.toFixed(1) + 'M shares outstanding — normal range for this market cap tier.';
+    function ctxFloat(f) {
+      if (!f) return '—';
+      var m2 = f/1e6;
+      if (m2 < 5) return '🎯 Ultra-low float of '+m2.toFixed(2)+'M — tiny supply. Even small buying pressure creates outsized price moves.';
+      if (m2 < 20) return 'Low float of '+m2.toFixed(1)+'M shares — susceptible to sharp moves. Classic momentum setup.';
+      if (m2 < 100) return 'Moderate float of '+m2.toFixed(0)+'M shares — manageable for institutional activity.';
+      return 'Large float of '+m2.toFixed(0)+'M shares — requires significant volume to move meaningfully.';
     }
-    function bookValAnalysis(bv, cur) {
-      if (!bv || !cur) return '—';
-      var ratio = cur/bv;
-      if (ratio > 10) return '⚠️ Trading at ' + ratio.toFixed(1) + 'x book value — heavily speculative, not backed by assets.';
-      if (ratio > 3) return 'At ' + ratio.toFixed(1) + 'x book — premium valuation, dependent on growth delivery.';
-      if (ratio < 1) return '💎 Trading BELOW book value — potentially undervalued on assets alone.';
-      return 'At ' + ratio.toFixed(1) + 'x book — reasonable valuation vs asset base.';
+    function ctxFloatRot(rot) {
+      if (!rot||rot==='—') return '—';
+      var x = parseFloat(rot);
+      if (x > 5) return '🌀 Float has rotated '+x.toFixed(1)+'x today — almost every share has changed hands multiple times. Extreme speculation.';
+      if (x > 2) return 'Float rotated '+x.toFixed(1)+'x — very high turnover. Strong day-trading activity.';
+      if (x > 1) return 'Full float rotation ('+x.toFixed(1)+'x) — entire float traded at least once today.';
+      return x.toFixed(2)+'x float rotation — partial turnover. Normal for this float size.';
     }
-    function tangBookAnalysis(tbv, cur) {
-      if (!tbv || !cur) return '—';
-      if (tbv < 0) return '🚨 Negative tangible book value ($'+tbv.toFixed(2)+') — company has more liabilities than tangible assets. Bankruptcy risk elevated.';
-      var ratio = cur/tbv;
-      if (ratio > 20) return 'Price is ' + ratio.toFixed(0) + 'x tangible book — highly speculative. Near-zero recovery value in liquidation.';
-      if (ratio > 5) return ratio.toFixed(1) + 'x tangible book — significant premium over hard assets.';
-      return 'Tangible book of $'+tbv.toFixed(2)+' provides some asset floor support.';
+    function ctxShortPct(pct, shortInt) {
+      if (!pct||pct==='—') return '—';
+      var p = parseFloat(pct);
+      if (p > 30) return '🎯 '+pct+' short — very high short interest. Significant squeeze potential if price breaks key levels.';
+      if (p > 15) return pct+' short — elevated short interest. Squeeze risk present on catalyst.';
+      if (p < 3) return pct+' short — low short interest. Limited squeeze fuel but also less downside pressure.';
+      return pct+' of float is sold short — moderate interest. Watch borrow rate for squeeze setups.';
     }
-    function betaAnalysis(b) {
+    function ctxBook(bv, cur) {
+      if (!bv||!cur) return '—';
+      var r = cur/bv;
+      if (bv < 0) return '🚨 Negative book value ($'+fmtN(bv,2)+') — liabilities exceed assets. Company is technically insolvent on paper.';
+      if (r > 15) return 'Trading at '+r.toFixed(1)+'x book value ($'+fmtN(bv,2)+'/share) — highly speculative. Price is driven by narrative, not assets.';
+      if (r > 3) return 'At '+r.toFixed(1)+'x book value — premium multiple, growth expectations embedded.';
+      if (r < 1) return '💎 Trading BELOW book value ($'+fmtN(bv,2)+'/share) — potentially undervalued on pure asset basis.';
+      return 'At '+r.toFixed(1)+'x book value ($'+fmtN(bv,2)+'/share) — reasonable vs asset base.';
+    }
+    function ctxBeta(b) {
       if (!b) return '—';
-      if (b > 3) return '🎢 Beta of '+b.toFixed(2)+' — extreme volatility. Moves 3x+ the market. High-risk day trade only.';
-      if (b > 2) return 'Beta of '+b.toFixed(2)+' — very high volatility. Expect sharp swings in both directions.';
-      if (b > 1.5) return 'Beta of '+b.toFixed(2)+' — above-average volatility. Active risk management required.';
-      if (b > 1) return 'Beta of '+b.toFixed(2)+' — slightly more volatile than the market.';
-      if (b < 0) return 'Negative beta ('+b.toFixed(2)+') — moves inversely to the market. Natural hedge.';
-      return 'Beta of '+b.toFixed(2)+' — less volatile than the market.';
+      if (b > 3) return '🎢 Beta '+fmtN(b,2)+' — extreme volatility. Moves 3x+ the broader market. Day-trade only with tight stops.';
+      if (b > 2) return 'Beta '+fmtN(b,2)+' — very high volatility. Expect sharp swings. Size position accordingly.';
+      if (b > 1.5) return 'Beta '+fmtN(b,2)+' — above-average volatility. Active risk management required.';
+      if (b < 0) return 'Negative beta ('+fmtN(b,2)+') — moves inversely to the market. Natural portfolio hedge.';
+      return 'Beta '+fmtN(b,2)+' — moderate volatility profile.';
     }
 
-    var curPrice = q.c;
+    var dil = dilutionFlag(sharesOut, p&&p.marketCapitalization?p.marketCapitalization*1e6:null);
+    var newsCat = newsCatFlag(n);
+
     return {
-      price: fmtN(q.c), change: chg!==null?(chg>=0?'+':'')+chg.toFixed(2)+'%':'—', changeRaw: chg,
-      open: fmtN(q.o), high: fmtN(q.h), low: fmtN(q.l), prevClose: fmtN(q.pc),
-      volume: fmtV(q.v), avgVolume: fmtV(avgV), relVolume: relV,
-      relVolumeDetail: q.v && avgV ? fmtV(q.v)+' / '+fmtV(avgV) : '—',
-      avg3mVolume: fmtV(avg3m), relVolume3m: relV3m,
+      // Price data
+      price: fmtN(q.c), priceRaw: q.c,
+      change: chg!==null?(chg>=0?'+':'')+chg.toFixed(2)+'%':'—', changeRaw: chg,
+      open: fmtN(q.o), openRaw: q.o,
+      high: fmtN(q.h), low: fmtN(q.l),
+      prevClose: fmtN(q.pc), prevCloseRaw: q.pc,
+      // Gap
+      gapPct: gapStr, gapRaw: gapPct,
+      // Volume
+      volume: fmtV(q.v), volumeRaw: q.v,
+      avgVolume: fmtV(avg10d), avg3mVolume: fmtV(avg3m),
+      relVolume: relVStr, relVolumeRaw: relV10d,
+      // Float
+      float: floatShares ? fmtV(floatShares) : '—', floatRaw: floatShares,
+      floatRotation: floatRotation,
+      // Short
+      shortIntPct: shortPctFloat, shortIntShares: shortIntRaw ? fmtV(shortIntRaw) : '—',
+      // Fundamentals
+      bookValue: bookVal ? fmtN(bookVal,2) : '—', bookValueRaw: bookVal,
       marketCap: fmtB(p&&p.marketCapitalization?p.marketCapitalization*1e6:null),
-      hi52: fmtN(m['52WeekHigh']), lo52: fmtN(m['52WeekLow']),
-      shortInt: m['shortInterest']?fmtV(m['shortInterest']):'—',
-      shortRatio: fmtN(m['shortRatioTTM'],1),
-      beta: fmtN(betaVal,2), betaRaw: betaVal,
-      pe: fmtN(m['peBasicExclExtraTTM'],1),
-      bookValue: fmtN(bookVal,2), bookValueRaw: bookVal,
-      tangBookValue: fmtN(tangBook,2), tangBookRaw: tangBook,
-      sharesOutstanding: fmtV(sharesOut), sharesRaw: sharesOut,
+      // Flags
+      newsCat: newsCat,
+      dilutionFlag: dil.flag, dilutionCtx: dil.ctx,
+      // Company
       company: p&&p.name||ticker, exchange: p&&p.exchange||'',
       industry: p&&p.finnhubIndustry||'—', weburl: p&&p.weburl||null,
       yahooUrl: 'https://finance.yahoo.com/quote/'+ticker,
-      // Contextual analysis
+      beta: betaVal ? fmtN(betaVal,2) : '—', betaRaw: betaVal,
+      hi52: fmtN(m['52WeekHigh']), lo52: fmtN(m['52WeekLow']),
+      // Contextual analysis map
       ctx: {
-        hi: hiAnalysis(q.h, curPrice),
-        lo: loAnalysis(q.l, curPrice),
-        open: openAnalysis(q.o, q.pc),
-        prevClose: prevCloseAnalysis(curPrice, q.pc),
-        vol3m: vol3mAnalysis(q.v, avg3m),
-        vol10d: vol10dAnalysis(q.v, avgV),
-        shares: sharesAnalysis(sharesOut),
-        bookVal: bookValAnalysis(bookVal, curPrice),
-        tangBook: tangBookAnalysis(tangBook, curPrice),
-        beta: betaAnalysis(betaVal)
+        gap: ctxGap(gapPct),
+        hi: ctxHi(q.h, q.c),
+        lo: ctxLo(q.l, q.c),
+        open: ctxOpen(q.o, q.pc),
+        prevClose: ctxPrevClose(q.c, q.pc),
+        vol3m: ctxVol3m(q.v, avg3m),
+        vol10d: ctxVol10d(q.v, avg10d),
+        float: ctxFloat(floatShares),
+        floatRot: ctxFloatRot(floatRotation),
+        shortPct: ctxShortPct(shortPctFloat, shortIntRaw),
+        book: ctxBook(bookVal, q.c),
+        beta: ctxBeta(betaVal),
+        dilution: dil.ctx
       },
+      // Premarket placeholders (not available on free Finnhub — sourced from Gemini)
+      premktHigh: null, premktLow: null, premktVol: null,
       news: (n||[]).slice(0,6).map(function(a){ return {
         headline: a.headline, source: a.source, url: a.url,
         dt: new Date(a.datetime*1000).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
@@ -942,53 +1023,56 @@ document.addEventListener('DOMContentLoaded', function() {
     if (!d) return '';
     var today = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
     var chgColor = d.changeRaw>=0?'#1D9E75':'#e24b4a';
-    var relColor = parseFloat(d.relVolume)>=3?'#1D9E75':'inherit';
+    var relColor = d.relVolumeRaw && d.relVolumeRaw>=3?'#1D9E75':'inherit';
+    var NA = '<span style="color:var(--text4);font-size:10px">N/A — premarket data not on free tier</span>';
 
-    function row(metric, value, analysis) {
+    function row(metric, value, ctx, valueColor) {
       return '<tr>'
-        + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);color:var(--text4);font-size:11px;font-family:Space Mono,monospace;width:22%;vertical-align:top">' + metric + '</td>'
-        + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:13px;font-family:Space Mono,monospace;font-weight:700;width:20%;vertical-align:top">' + value + '</td>'
-        + '<td style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text3);line-height:1.5;vertical-align:top">' + (analysis||'—') + '</td>'
+        + '<td style="padding:9px 14px;border-bottom:1px solid var(--border);color:var(--text4);font-size:11px;font-family:Space Mono,monospace;width:20%;vertical-align:top;white-space:nowrap">' + metric + '</td>'
+        + '<td style="padding:9px 14px;border-bottom:1px solid var(--border);font-size:12px;font-family:Space Mono,monospace;font-weight:700;width:18%;vertical-align:top;color:'+(valueColor||'var(--text)')+'">'+value+'</td>'
+        + '<td style="padding:9px 14px;border-bottom:1px solid var(--border);font-size:12px;color:var(--text3);line-height:1.55;vertical-align:top">'+(ctx||'—')+'</td>'
         + '</tr>';
     }
 
     var headerLink = d.weburl
       ? '<a href="'+d.weburl+'" target="_blank" style="color:#1D9E75;margin-left:auto;font-size:10px;text-decoration:none">'+d.company+' ↗</a>'
-      : '<span style="margin-left:auto">'+d.company+'</span>';
+      : '<span style="margin-left:auto;font-size:10px">'+d.company+'</span>';
 
+    var priceDisp = '<span style="font-size:15px;font-weight:800">$'+d.price+'</span> <span style="color:'+chgColor+'">'+d.change+'</span>';
     var yahooLink = '<a href="'+d.yahooUrl+'" target="_blank" style="color:#1D9E75;text-decoration:none">'+d.exchange+': '+ticker+' ↗</a>';
-
-    var priceDisplay = '<span style="font-size:16px;font-weight:800;color:var(--text)">$'+d.price+'</span> '
-      + '<span style="color:'+chgColor+';font-size:13px">'+d.change+'</span>';
-
-    var tableHtml = '<table style="width:100%;border-collapse:collapse">'
-      + '<thead><tr>'
-      + '<th style="padding:8px 14px;background:var(--bg4);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace">Metric</th>'
-      + '<th style="padding:8px 14px;background:var(--bg4);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace">Value</th>'
-      + '<th style="padding:8px 14px;background:var(--bg4);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace">Contextual Analysis</th>'
-      + '</tr></thead><tbody>'
-      + row("Price ("+today+")", priceDisplay, d.ctx.prevClose)
-      + row("Today's High", '$'+d.high, d.ctx.hi)
-      + row("Today's Low", '$'+d.low, d.ctx.lo)
-      + row("Open Price", '$'+d.open, d.ctx.open)
-      + row("Previous Close", '$'+d.prevClose, '<span style="color:'+chgColor+'">'+d.change+' vs yesterday</span>')
-      + row("3-Month Avg Vol", d.avg3mVolume, d.ctx.vol3m)
-      + row("10-Day Avg Vol", d.avgVolume, d.ctx.vol10d)
-      + row("Shares Outstanding", d.sharesOutstanding, d.ctx.shares)
-      + row("Book Value/Share", d.bookValue !== '—' ? '$'+d.bookValue : '—', d.ctx.bookVal)
-      + row("Tangible Book Val", d.tangBookValue !== '—' ? '$'+d.tangBookValue : '—', d.ctx.tangBook)
-      + row("Beta", d.beta, d.ctx.beta)
-      + row("Short Interest", d.shortInt, d.shortRatio !== '—' ? 'Short ratio: '+d.shortRatio+' days to cover' : '—')
-      + row("Market Cap", d.marketCap, 'Industry: '+d.industry)
-      + row("52W Range", '$'+d.lo52+' — $'+d.hi52, 'Exchange: '+yahooLink)
-      + '</tbody></table>';
 
     return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin:20px 0">'
       + '<div style="padding:10px 14px;background:var(--bg4);font-size:9px;letter-spacing:0.1em;color:var(--text4);text-transform:uppercase;font-family:Space Mono,monospace;display:flex;align-items:center;gap:8px">'
-      + '📊 LIVE MARKET DATA <span style="color:#1D9E75">● FINNHUB</span>' + headerLink
+      + '📊 LIVE MARKET DATA <span style="color:#1D9E75;font-size:9px">● FINNHUB</span>' + headerLink
       + '</div>'
-      + tableHtml
-      + '</div>';
+      + '<table style="width:100%;border-collapse:collapse">'
+      + '<thead><tr>'
+      + '<th style="padding:8px 14px;background:var(--bg3);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace;border-bottom:1px solid var(--border2)">Metric</th>'
+      + '<th style="padding:8px 14px;background:var(--bg3);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace;border-bottom:1px solid var(--border2)">Value</th>'
+      + '<th style="padding:8px 14px;background:var(--bg3);font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--text4);text-align:left;font-family:Space Mono,monospace;border-bottom:1px solid var(--border2)">Contextual Analysis</th>'
+      + '</tr></thead><tbody>'
+      + row('Price', priceDisp, d.ctx.prevClose, null)
+      + row('% Overnight Gap', d.gapPct, d.ctx.gap, d.gapRaw>=0?'#1D9E75':'#e24b4a')
+      + row('Premarket High', NA, 'Upgrade to Finnhub paid tier or use pre-market data provider for this metric.', null)
+      + row('Premarket Low', NA, 'Upgrade to Finnhub paid tier or use pre-market data provider for this metric.', null)
+      + row('Open Price', '$'+d.open, d.ctx.open, null)
+      + row('Previous Close', '$'+d.prevClose, 'Baseline for today\'s performance.', null)
+      + row('Today\'s High', '$'+d.high, d.ctx.hi, null)
+      + row('Today\'s Low', '$'+d.low, d.ctx.lo, null)
+      + row('Premarket Volume', NA, 'Premarket volume requires a paid data feed. Finnhub free tier covers regular session only.', null)
+      + row('Current Volume', d.volume, d.ctx.vol10d, relColor)
+      + row('Rel Volume (RVOL)', '<span style="color:'+relColor+'">'+d.relVolume+'</span>', d.ctx.vol10d, null)
+      + row('3-Month Avg Vol', d.avg3mVolume, d.ctx.vol3m, null)
+      + row('10-Day Avg Vol', d.avgVolume, '10-day baseline used for RVOL calculation.', null)
+      + row('Public Float', d.float, d.ctx.float, null)
+      + row('Float Rotation', d.floatRotation, d.ctx.floatRot, parseFloat(d.floatRotation)>1?'#1D9E75':null)
+      + row('Short Interest %', d.shortIntPct, d.ctx.shortPct, parseFloat(d.shortIntPct)>15?'#e24b4a':null)
+      + row('News Catalyst', d.newsCat, 'Category detected from Finnhub news feed headlines.', null)
+      + row('Dilution Risk Flag', d.dilutionFlag, d.dilutionCtx, d.dilutionFlag.includes('HIGH')?'#e24b4a':d.dilutionFlag.includes('MOD')?'#EF9F27':'#1D9E75')
+      + row('Book Value/Share', d.bookValue!=='—'?'$'+d.bookValue:'—', d.ctx.book, null)
+      + row('Market Cap', d.marketCap, 'Industry: '+d.industry, null)
+      + row('Exchange', yahooLink, '52W Range: $'+d.lo52+' — $'+d.hi52+' | Beta: '+d.beta+' — '+d.ctx.beta, null)
+      + '</tbody></table></div>';
   }
 
 
@@ -1372,6 +1456,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Bold + italic
     out = out.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
     out = out.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Highlight the 🔥 most influential news item with a special background
+    out = out.replace(/<li>🔥 (<strong>[\s\S]*?<\/strong>)<\/li>/g,
+      '<li style="background:rgba(29,158,117,0.08);border-left:3px solid var(--green);padding:8px 12px;border-radius:0 6px 6px 0;margin:4px 0">🔥 $1</li>'
+    );
     out = out.replace(/\*(.+?)\*/g, '<em>$1</em>');
 
     // Inline code
@@ -1411,6 +1499,79 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
 
+  async function analyzeWithImage(apiKey, rawText, signals) {
+    var today = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
+    var now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZoneName:'short'});
+
+    var prompt = 'You are a senior Wall Street day trading analyst with live internet access. Today is '+today+', time is '+now+'.\n\n'
+      +'CRITICAL RULES:\n'
+      +'1. Start IMMEDIATELY with the first # heading — NO preamble or introduction sentences\n'
+      +'2. Every news claim, catalyst, and risk factor MUST have a real working hyperlink [text](url)\n'
+      +'3. Only use URLs you actually found via web search — never fabricate URLs\n\n'
+      +'The user has uploaded a screenshot from the Pro Ticker Signals app (or WhatsApp/Telegram).\n'
+      +(rawText ? 'They also provided text: "'+rawText.slice(0,300)+'"\n\n' : '\n')
+      +'STEP 1: Extract ALL trade signals from the image. They look like:\n'
+      +'  CLIK Long > 3.66 Short < 3.08 - 6:56 AM ET\n'
+      +'  ODYS Long > 6.68 - 8:38 AM ET\n\n'
+      +'STEP 2: For each ticker found, search the internet RIGHT NOW for news, catalysts, price data.\n\n'
+      +'STEP 3: For EACH ticker produce EXACTLY this format:\n\n'
+      +'# [TICKER] — [Full Company Name]\n'
+      +'**[LONG / SHORT / NEUTRAL / AVOID]** | Confidence: [X]% | Long > $[price] | Short < $[price]\n\n'
+      +'## 📡 Catalyst Scan\n'
+      +'[If article published within 30 min of signal, start with: ⚡ NEWS-DRIVEN CATALYST —]\n'
+      +'[2-3 sentences with inline hyperlinks: "announced ([Source](url))"]\n\n'
+      +'## 📰 Recent News\n'
+      +'- **[Source]** — [Date] — [[Headline]](url). [1-2 sentence summary]\n\n'
+      +'## 📊 Market Data\n'
+      +'[Write: "Live data provided by Finnhub." — the table will be injected automatically]\n\n'
+      +'## 🎯 Trade Analysis\n'
+      +'[Para 1: Primary catalyst with inline link.]\n'
+      +'[Para 2: Technical setup vs signal triggers, float, rel volume.]\n'
+      +'[Para 3 ANALYST OPINION — write entirely in **bold**: "Based on [catalyst], the current price of $X.XX, and [specific data], **this analyst [recommends / does not recommend] entering a [long/short] position at this time because [reason]. Entry confirmed above $X.XX, invalidated below $X.XX.**"]\n\n'
+      +'## ⚠️ Risk Factors\n'
+      +'- **[Risk]**: [Description with numbers]. ([Source](url))\n\n'
+      +'---\n'
+      +'Repeat for EACH ticker found in the image.';
+
+    // Fetch Finnhub data for any signals we already parsed from text
+    var finnhubMap = {};
+    if (FINNHUB_KEY && signals && signals.length && signals[0].ticker !== 'IMAGE') {
+      var fhResults = await Promise.all(signals.map(function(s){ return getFinnhubData(s.ticker); }));
+      signals.forEach(function(s,i){ finnhubMap[s.ticker] = fhResults[i]; });
+    }
+
+    var parts = [{ text: prompt }];
+    if (currentImageBase64) {
+      parts.push({ inline_data: { mime_type: currentImageMime||'image/jpeg', data: currentImageBase64 } });
+    }
+
+    var data = await geminiCallWithRetry(apiKey, {
+      contents: [{ parts: parts }],
+      tools: [{ google_search: {} }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 8192 }
+    });
+
+    var markdown = extractTextFromResponse(data);
+
+    // Try to extract tickers from the response to fetch Finnhub data
+    if (FINNHUB_KEY && Object.keys(finnhubMap).length === 0) {
+      var foundTickers = [];
+      var hMatch;
+      var hRe = /^# ([A-Z]{2,6})/gm;
+      while ((hMatch = hRe.exec(markdown)) !== null) {
+        foundTickers.push(hMatch[1]);
+      }
+      if (foundTickers.length) {
+        var fhRes2 = await Promise.all(foundTickers.map(function(t){ return getFinnhubData(t); }));
+        foundTickers.forEach(function(t,i){ finnhubMap[t] = fhRes2[i]; });
+        // Build signal objects for history
+        signals = foundTickers.map(function(t){ return { raw: t, ticker: t, longP: null, shortP: null, time: null }; });
+      }
+    }
+
+    renderMarkdownResults(markdown, signals, finnhubMap);
+  }
+
   async function analyzeSignals(apiKey, signals, rawText) {
     var today = new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
     var now = new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZoneName:'short'});
@@ -1443,7 +1604,7 @@ document.addEventListener('DOMContentLoaded', function() {
       +'4. Market data must state the exact date it is from\n\n'
       +'SIGNALS:\n'+signalList+'\n\n'
       +(rawText && rawText !== signalList ? 'CONTEXT: "'+rawText.slice(0,300)+'"\n\n' : '')
-      +(liveCtx ? 'LIVE MARKET DATA FROM FINNHUB (use these exact numbers — do NOT search for price/volume):\n'+liveCtx+'\n\n' : '')
+      +(liveCtx ? 'LIVE MARKET DATA FROM FINNHUB (use these exact numbers in your analysis):\n'+liveCtx+'\n\nIMPORTANT: The market table is auto-generated from Finnhub. In your ## 📡 Catalyst Scan and ## 🎯 Trade Analysis sections, also mention premarket high/low and premarket volume if you can find them via web search (e.g. search "[TICKER] premarket volume today"). These are not in Finnhub free tier.\n\n' : '')
       +'For EACH ticker ('+tickerList+'), produce EXACTLY this format:\n\n'
       +'# [TICKER] — [Full Company Name]\n'
       +'**[LONG / SHORT / NEUTRAL / AVOID]** | Confidence: [X]% | Long > $[price] | Short < $[price]\n\n'
@@ -1451,14 +1612,16 @@ document.addEventListener('DOMContentLoaded', function() {
       +'[If article published within 30 min of signal time, start with: ⚡ NEWS-DRIVEN CATALYST —]\n'
       +'[2-3 sentences on what was announced, when, and why it moves the stock. Every claim needs inline hyperlink: e.g. "announced ([Source Name](https://...))"]\n\n'
       +'## 📰 Recent News\n'
-      +'- **[Source]** — [Date] — [[Full Headline]](real_url_here). [1-2 sentence summary]\n'
-      +'[List ALL relevant articles found. Every item needs a real working URL. Most recent first.]\n\n'
+      +'List ALL relevant articles found, most recent first. Every item needs a real working URL.\n'
+      +'For the single article most likely to be driving today\'s price action, wrap its entire bullet in **bold** and add a 🔥 emoji at the start.\n'
+      +'Format: - 🔥 **[Source] — [Date] — [[Headline]](url). [Summary]** (for the most influential)\n'
+      +'Format: - **[Source]** — [Date] — [[Headline]](url). [Summary] (for all others)\n\n'
       +'## 📊 Market Data\n'
       +'[The live Finnhub table will be injected here automatically — just write a 1-line note: "Live data provided by Finnhub."]\n\n'
       +'## 🎯 Trade Analysis\n'
       +'[Para 1: Primary catalyst and why it moves the stock. Inline link to source.]\n'
       +'[Para 2: Technical setup — current price vs signal triggers, float, rel volume, momentum.]\n'
-      +'[Para 3 ANALYST OPINION: "Based on [specific catalyst], current price of $X.XX, and [specific data point], this analyst [recommends / does not recommend] entering a [long/short] at this time because [specific reason]. Entry is confirmed above $X.XX and invalidated below $X.XX."]\n\n'
+      +'[Para 3 ANALYST OPINION — write this entire paragraph in **bold**: "Based on [specific catalyst with link], the current price of $X.XX, and [specific data such as float/RVOL/short interest], **this analyst [recommends / does not recommend] entering a [long/short] position at this time because [specific reason]. Entry confirmed above $X.XX, invalidated below $X.XX.**"]\\n\\n'
       +'## ⚠️ Risk Factors\n'
       +'- **[Risk Name]**: [Specific description with numbers]. ([Source Name](real_url))\n'
       +'[Every risk needs a cited source with real URL]\n\n'
