@@ -797,19 +797,26 @@ document.addEventListener('DOMContentLoaded', function() {
   async function getFinnhubData(ticker) {
     var from = new Date(Date.now()-3*86400000).toISOString().split('T')[0];
     var to = new Date().toISOString().split('T')[0];
-    var [q, p, f, n, own] = await Promise.all([
+    var todayUnix = Math.floor(new Date().setHours(0,0,0,0)/1000);
+    var nowUnix = Math.floor(Date.now()/1000);
+    var [q, p, f, n, candle] = await Promise.all([
       fhFetch('/quote?symbol='+ticker),
       fhFetch('/stock/profile2?symbol='+ticker),
       fhFetch('/stock/metric?symbol='+ticker+'&metric=all'),
       fhFetch('/company-news?symbol='+ticker+'&from='+from+'&to='+to),
-      fhFetch('/stock/ownership?symbol='+ticker+'&limit=1')
+      fhFetch('/stock/candle?symbol='+ticker+'&resolution=D&from='+(todayUnix-86400)+'&to='+nowUnix)
     ]);
+    // Use candle volume if quote volume is missing/zero
+    var currentVol = (q && q.v && q.v > 0) ? q.v
+      : (candle && candle.v && candle.v.length) ? candle.v[candle.v.length-1]
+      : null;
     if (!q || q.c === 0) return null;
     var m = f && f.metric || {};
     var chg = q.c && q.pc ? ((q.c-q.pc)/q.pc*100) : null;
     var avgV = m['10DayAverageTradingVolume'] ? m['10DayAverageTradingVolume']*1e6 : null;
     var relV = (q.v && avgV) ? (q.v/avgV).toFixed(1)+'x' : '—';
     // ── Computed values ──────────────────────────────────────────
+    // Volume — use currentVol (from candle if quote.v is 0)
     var avg3m = m['3MonthAverageTradingVolume'] ? m['3MonthAverageTradingVolume']*1e6 : null;
     var avg10d = m['10DayAverageTradingVolume'] ? m['10DayAverageTradingVolume']*1e6 : null;
     var sharesOut = p && p.shareOutstanding ? p.shareOutstanding*1e6 : null;
@@ -819,16 +826,21 @@ document.addEventListener('DOMContentLoaded', function() {
     var chg = q.c && q.pc ? ((q.c - q.pc) / q.pc * 100) : null;
 
     // Relative volume vs 10-day
-    var relV10d = (q.v && avg10d) ? (q.v/avg10d) : null;
+    var relV10d = (currentVol && avg10d) ? (currentVol/avg10d) : null;
     var relVStr = relV10d ? relV10d.toFixed(2)+'x' : '—';
 
     // Float rotation: today vol / float (how many times the float traded today)
-    var floatRotation = (q.v && floatShares && floatShares > 0)
-      ? (q.v / floatShares).toFixed(2)+'x'
+    // Float rotation: current vol / shares outstanding (not just float)
+    var floatRotation = (currentVol && sharesOut && sharesOut > 0)
+      ? (currentVol / sharesOut).toFixed(3)+'x'
       : '—';
+    var floatRotWarning = (currentVol && sharesOut) && (currentVol/sharesOut) >= 0.25
+      ? '🔥 Above 0.25x — highly active retail battleground' : null;
 
     // Overnight gap % = (open - prevClose) / prevClose * 100
     var gapPct = (q.o && q.pc) ? ((q.o - q.pc) / q.pc * 100) : null;
+    var relV3m = (currentVol && avg3m) ? (currentVol/avg3m) : null;
+    var relV3mStr = relV3m ? relV3m.toFixed(2)+'x' : '—';
     var gapStr = gapPct !== null ? (gapPct >= 0 ? '+' : '') + gapPct.toFixed(2) + '%' : '—';
 
     // Short interest % of float
@@ -929,10 +941,12 @@ document.addEventListener('DOMContentLoaded', function() {
     function ctxFloatRot(rot) {
       if (!rot||rot==='—') return '—';
       var x = parseFloat(rot);
-      if (x > 5) return '🌀 Float has rotated '+x.toFixed(1)+'x today — almost every share has changed hands multiple times. Extreme speculation.';
-      if (x > 2) return 'Float rotated '+x.toFixed(1)+'x — very high turnover. Strong day-trading activity.';
-      if (x > 1) return 'Full float rotation ('+x.toFixed(1)+'x) — entire float traded at least once today.';
-      return x.toFixed(2)+'x float rotation — partial turnover. Normal for this float size.';
+      // Now measured as vol/sharesOut (0.0 - 1.0+ range)
+      if (x >= 1.0) return '🌀 '+x.toFixed(2)+'x — full share turnover. Entire outstanding shares traded today. Extreme retail activity.';
+      if (x >= 0.5) return '🔥 '+x.toFixed(2)+'x — over half of outstanding shares traded. Very high conviction day.';
+      if (x >= 0.25) return '⚡ '+x.toFixed(2)+'x — above 0.25 threshold. Confirmed high-activity retail battleground.';
+      if (x >= 0.10) return x.toFixed(2)+'x — moderate turnover. Decent activity but not a frenzy.';
+      return x.toFixed(3)+'x — low turnover. Below 0.10, limited retail participation so far.';
     }
     function ctxShortPct(pct, shortInt) {
       if (!pct||pct==='—') return '—';
@@ -962,6 +976,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     var dil = dilutionFlag(sharesOut, p&&p.marketCapitalization?p.marketCapitalization*1e6:null);
     var newsCat = newsCatFlag(n);
+    var relV3mForReturn = relV3mStr || '—';
 
     return {
       // Price data
@@ -973,9 +988,9 @@ document.addEventListener('DOMContentLoaded', function() {
       // Gap
       gapPct: gapStr, gapRaw: gapPct,
       // Volume
-      volume: fmtV(q.v), volumeRaw: q.v,
+      volume: fmtV(currentVol), volumeRaw: currentVol,
       avgVolume: fmtV(avg10d), avg3mVolume: fmtV(avg3m),
-      relVolume: relVStr, relVolumeRaw: relV10d,
+      relVolume: relVStr, relVolumeRaw: relV10d, relVolume3m: relV3mStr,
       // Float
       float: floatShares ? fmtV(floatShares) : '—', floatRaw: floatShares,
       floatRotation: floatRotation,
@@ -1000,10 +1015,10 @@ document.addEventListener('DOMContentLoaded', function() {
         lo: ctxLo(q.l, q.c),
         open: ctxOpen(q.o, q.pc),
         prevClose: ctxPrevClose(q.c, q.pc),
-        vol3m: ctxVol3m(q.v, avg3m),
-        vol10d: ctxVol10d(q.v, avg10d),
+        vol3m: ctxVol3m(currentVol, avg3m),
+        vol10d: ctxVol10d(currentVol, avg10d),
         float: ctxFloat(floatShares),
-        floatRot: ctxFloatRot(floatRotation),
+        floatRot: ctxFloatRot(floatRotation) + (floatRotWarning ? ' ' + floatRotWarning : ''),
         shortPct: ctxShortPct(shortPctFloat, shortIntRaw),
         book: ctxBook(bookVal, q.c),
         beta: ctxBeta(betaVal),
@@ -1053,20 +1068,16 @@ document.addEventListener('DOMContentLoaded', function() {
       + '</tr></thead><tbody>'
       + row('Price', priceDisp, d.ctx.prevClose, null)
       + row('% Overnight Gap', d.gapPct, d.ctx.gap, d.gapRaw>=0?'#1D9E75':'#e24b4a')
-      + row('Premarket High', NA, 'Upgrade to Finnhub paid tier or use pre-market data provider for this metric.', null)
-      + row('Premarket Low', NA, 'Upgrade to Finnhub paid tier or use pre-market data provider for this metric.', null)
       + row('Open Price', '$'+d.open, d.ctx.open, null)
       + row('Previous Close', '$'+d.prevClose, 'Baseline for today\'s performance.', null)
       + row('Today\'s High', '$'+d.high, d.ctx.hi, null)
       + row('Today\'s Low', '$'+d.low, d.ctx.lo, null)
-      + row('Premarket Volume', NA, 'Premarket volume requires a paid data feed. Finnhub free tier covers regular session only.', null)
-      + row('Current Volume', d.volume, d.ctx.vol10d, relColor)
-      + row('Rel Volume (RVOL)', '<span style="color:'+relColor+'">'+d.relVolume+'</span>', d.ctx.vol10d, null)
+      + row('Current Volume', d.volume !== '—' ? d.volume : '<span style="color:#EF9F27">Fetching…</span>', 'Today\'s volume from Finnhub candle data. Used to calculate RVOL and Float Rotation below.', relColor)
+      + row('Rel Volume (RVOL)', d.relVolumeRaw ? '<span style="color:'+relColor+'">'+d.relVolume+'</span>' : '<span style="color:#EF9F27">Calculating…</span>', 'Formula: Current Vol ÷ 10-Day Avg Vol. ' + (d.relVolumeRaw ? d.ctx.vol10d : 'Will calculate once market opens.'), null)
       + row('3-Month Avg Vol', d.avg3mVolume, d.ctx.vol3m, null)
       + row('10-Day Avg Vol', d.avgVolume, '10-day baseline used for RVOL calculation.', null)
       + row('Public Float', d.float, d.ctx.float, null)
-      + row('Float Rotation', d.floatRotation, d.ctx.floatRot, parseFloat(d.floatRotation)>1?'#1D9E75':null)
-      + row('Short Interest %', d.shortIntPct, d.ctx.shortPct, parseFloat(d.shortIntPct)>15?'#e24b4a':null)
+      + row('Est. Float Rotation', d.floatRotation !== '—' ? d.floatRotation : '<span style="color:#EF9F27">Calculating…</span>', 'Formula: Current Vol ÷ Shares Outstanding. ' + (d.floatRotation !== '—' ? d.ctx.floatRot : 'Above 0.25x early in the day = highly active retail battleground.'), parseFloat(d.floatRotation)>=0.25?'#1D9E75':null)
       + row('News Catalyst', d.newsCat, 'Category detected from Finnhub news feed headlines.', null)
       + row('Dilution Risk Flag', d.dilutionFlag, d.dilutionCtx, d.dilutionFlag.includes('HIGH')?'#e24b4a':d.dilutionFlag.includes('MOD')?'#EF9F27':'#1D9E75')
       + row('Book Value/Share', d.bookValue!=='—'?'$'+d.bookValue:'—', d.ctx.book, null)
