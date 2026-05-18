@@ -572,6 +572,34 @@ textarea::placeholder { color: var(--text4); }
   align-items: center;
   gap: 8px;
 }
+/* Company overview section gets a subtle background highlight */
+.md-body h2:first-of-type {
+  color: var(--text);
+  margin-top: 0;
+}
+.md-overview-block {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--green);
+  border-radius: 0 8px 8px 0;
+  padding: 14px 16px;
+  margin: 0 0 20px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text2);
+}
+.md-overview-block strong { color: var(--text); }
+.earnings-soon {
+  display: inline-block;
+  background: var(--amber-bg);
+  border: 1px solid var(--amber-bd);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--amber);
+  font-family: 'Space Mono', monospace;
+  margin-top: 8px;
+}
 .md-body h3 {
   font-size: 15px;
   font-weight: 700;
@@ -799,13 +827,24 @@ document.addEventListener('DOMContentLoaded', function() {
     var to = new Date().toISOString().split('T')[0];
     var todayUnix = Math.floor(new Date().setHours(0,0,0,0)/1000);
     var nowUnix = Math.floor(Date.now()/1000);
-    var [q, p, f, n, candle] = await Promise.all([
+    var earningsFrom = new Date().toISOString().split('T')[0];
+    var earningsTo = new Date(Date.now()+45*86400000).toISOString().split('T')[0];
+    var [q, p, f, n, candle, earnings] = await Promise.all([
       fhFetch('/quote?symbol='+ticker),
       fhFetch('/stock/profile2?symbol='+ticker),
       fhFetch('/stock/metric?symbol='+ticker+'&metric=all'),
       fhFetch('/company-news?symbol='+ticker+'&from='+from+'&to='+to),
-      fhFetch('/stock/candle?symbol='+ticker+'&resolution=D&from='+(todayUnix-86400)+'&to='+nowUnix)
+      fhFetch('/stock/candle?symbol='+ticker+'&resolution=D&from='+(todayUnix-86400)+'&to='+nowUnix),
+      fhFetch('/calendar/earnings?symbol='+ticker+'&from='+earningsFrom+'&to='+earningsTo)
     ]);
+    // Find next earnings date if within 45 days
+    var nextEarnings = null;
+    if (earnings && earnings.earningsCalendar && earnings.earningsCalendar.length) {
+      var upcoming = earnings.earningsCalendar.filter(function(e){
+        return e.date >= earningsFrom;
+      });
+      if (upcoming.length) nextEarnings = upcoming[0];
+    }
     // Use candle volume if quote volume is missing/zero
     var currentVol = (q && q.v && q.v > 0) ? q.v
       : (candle && candle.v && candle.v.length) ? candle.v[candle.v.length-1]
@@ -1024,6 +1063,11 @@ document.addEventListener('DOMContentLoaded', function() {
         beta: ctxBeta(betaVal),
         dilution: dil.ctx
       },
+      // Earnings
+      nextEarningsDate: nextEarnings ? nextEarnings.date : null,
+      nextEarningsEpsEst: nextEarnings && nextEarnings.epsEstimate ? nextEarnings.epsEstimate : null,
+      nextEarningsRevEst: nextEarnings && nextEarnings.revenueEstimate ? nextEarnings.revenueEstimate : null,
+      daysToEarnings: nextEarnings ? Math.ceil((new Date(nextEarnings.date)-new Date())/(1000*60*60*24)) : null,
       // Premarket placeholders (not available on free Finnhub — sourced from Gemini)
       premktHigh: null, premktLow: null, premktVol: null,
       news: (n||[]).slice(0,6).map(function(a){ return {
@@ -1083,6 +1127,16 @@ document.addEventListener('DOMContentLoaded', function() {
       + row('Book Value/Share', d.bookValue!=='—'?'$'+d.bookValue:'—', d.ctx.book, null)
       + row('Market Cap', d.marketCap, 'Industry: '+d.industry, null)
       + row('Exchange', yahooLink, '52W Range: $'+d.lo52+' — $'+d.hi52+' | Beta: '+d.beta+' — '+d.ctx.beta, null)
+      + (d.nextEarningsDate ? row(
+          '📅 Next Earnings',
+          '<span style="color:#EF9F27;font-weight:700">'+d.nextEarningsDate+'</span>',
+          (d.daysToEarnings <= 7 ? '🚨 ' : d.daysToEarnings <= 14 ? '⚠️ ' : '📋 ')
+          + d.daysToEarnings+' days away'
+          + (d.nextEarningsEpsEst ? ' | EPS Est: <strong>$'+d.nextEarningsEpsEst+'</strong>' : '')
+          + (d.nextEarningsRevEst ? ' | Rev Est: <strong>$'+(d.nextEarningsRevEst/1e6).toFixed(1)+'M</strong>' : '')
+          + (d.daysToEarnings <= 14 ? ' — Earnings imminent. Review projection in Trade Analysis.' : ''),
+          null
+        ) : '')
       + '</tbody></table></div>';
   }
 
@@ -1528,6 +1582,10 @@ document.addEventListener('DOMContentLoaded', function() {
       +'STEP 3: For EACH ticker produce EXACTLY this format:\n\n'
       +'# [TICKER] — [Full Company Name]\n'
       +'**[LONG / SHORT / NEUTRAL / AVOID]** | Confidence: [X]% | Long > $[price] | Short < $[price]\n\n'
+      +'## 🏢 Company & Stock Overview\n'
+      +'[2-3 sentences: What does this company do, what sector, how long public, primary revenue source.]\n\n'
+      +'**Recent Performance:** [1-2 sentences on price trend last 1-3 months.]\n\n'
+      +'**Earnings Watch:** [Search for next earnings date. If within 45 days, give projection with source link.]\n\n'
       +'## 📡 Catalyst Scan\n'
       +'[If article published within 30 min of signal, start with: ⚡ NEWS-DRIVEN CATALYST —]\n'
       +'[2-3 sentences with inline hyperlinks: "announced ([Source](url))"]\n\n'
@@ -1600,11 +1658,17 @@ document.addEventListener('DOMContentLoaded', function() {
     var liveCtx = signals.map(function(s){
       var d = finnhubMap[s.ticker];
       if (!d) return '';
-      return s.ticker+' LIVE DATA (Finnhub, right now):\n'
+      var earningsLine = d.nextEarningsDate
+        ? 'Next Earnings: '+d.nextEarningsDate+' ('+d.daysToEarnings+' days away)'
+          + (d.nextEarningsEpsEst ? ' | EPS Est: $'+d.nextEarningsEpsEst : '')
+          + (d.nextEarningsRevEst ? ' | Rev Est: $'+(d.nextEarningsRevEst/1e6).toFixed(1)+'M' : '')
+        : 'Next Earnings: Not found within 45 days';
+      return s.ticker+' LIVE DATA (Finnhub):\n'
         +'Price: $'+d.price+' ('+d.change+') | Open: $'+d.open+' | High: $'+d.high+' | Low: $'+d.low+'\n'
         +'Volume: '+d.volume+' | Avg Vol (10d): '+d.avgVolume+' | Rel Volume: '+d.relVolume+'\n'
-        +'Market Cap: '+d.marketCap+' | 52W: $'+d.lo52+' — $'+d.hi52+'\n'
-        +'Short Interest: '+d.shortInt+' | Industry: '+d.industry;
+        +'Market Cap: '+d.marketCap+' | Float: '+d.float+' | Industry: '+d.industry+'\n'
+        +'52W Range: $'+d.lo52+' — $'+d.hi52+' | Beta: '+d.beta+'\n'
+        +earningsLine;
     }).filter(Boolean).join('\n\n');
 
     var prompt = 'You are a senior Wall Street day trading analyst with live internet access. Today is '+today+', current time is '+now+'.\n\n'
@@ -1619,6 +1683,10 @@ document.addEventListener('DOMContentLoaded', function() {
       +'For EACH ticker ('+tickerList+'), produce EXACTLY this format:\n\n'
       +'# [TICKER] — [Full Company Name]\n'
       +'**[LONG / SHORT / NEUTRAL / AVOID]** | Confidence: [X]% | Long > $[price] | Short < $[price]\n\n'
+      +'## 🏢 Company & Stock Overview\n'
+      +'[2-3 sentences: What does this company actually do? What sector/industry? How long have they been public? What is their primary revenue source?]\n\n'
+      +'**Recent Performance:** [1-2 sentences on how the stock has performed in the last 1-3 months — is it in an uptrend, downtrend, or ranging? Any major price events?]\n\n'
+      +'**Earnings Watch:** [Search for the next earnings date. If earnings are within 45 days, state the exact date and write a projection: based on [analyst estimates/recent revenue trends/sector performance], this company is expected to [beat/meet/miss] earnings because [specific reason with source link]. If no upcoming earnings found, state that clearly.]\n\n'
       +'## 📡 Catalyst Scan\n'
       +'[If article published within 30 min of signal time, start with: ⚡ NEWS-DRIVEN CATALYST —]\n'
       +'[2-3 sentences on what was announced, when, and why it moves the stock. Every claim needs inline hyperlink: e.g. "announced ([Source Name](https://...))"]\n\n'
@@ -1725,7 +1793,15 @@ document.addEventListener('DOMContentLoaded', function() {
       var finnhubTable = fd ? buildFinnhubCard(fd, ticker) : '';
       var finnhubNews = fd && fd.news && fd.news.length ? buildFinnhubNews(fd) : '';
 
-      // Inject live table after the Catalyst Scan section
+      // Wrap the Company Overview section in a styled block
+      renderedMd = renderedMd.replace(
+        /(<h2[^>]*>[^<]*(?:Company|Overview|Stock Overview)[^<]*<\/h2>)([\s\S]*?)(<h2|$)/,
+        function(match, h2, body, next) {
+          return h2 + '<div class="md-overview-block">' + body.trim() + '</div>' + next;
+        }
+      );
+
+      // Inject live Finnhub table after the Catalyst Scan section
       var finalHtml = renderedMd.replace(
         /(<h2[^>]*>[^<]*Catalyst[^<]*<\/h2>)([\s\S]*?)(<h2|$)/,
         function(match, h2, body, next) { return h2 + body + finnhubTable + next; }
